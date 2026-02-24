@@ -43,7 +43,7 @@ export default function ReportListPage() {
   if (status === "loading" || !session) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-sky-accent border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -62,13 +62,13 @@ export default function ReportListPage() {
 
         {loading ? (
           <div className="flex justify-center py-16">
-            <Loader2 className="w-6 h-6 text-sky-accent animate-spin" />
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
           </div>
         ) : reports.length === 0 ? (
           <GlassCard className="p-12 text-center">
-            <FileText className="w-12 h-12 text-foreground/20 mx-auto mb-4" />
+            <FileText className="w-12 h-12 text-text-faint mx-auto mb-4" />
             <h3 className="font-semibold mb-2">No reports yet</h3>
-            <p className="text-sm text-foreground/50 mb-6">
+            <p className="text-sm text-text-secondary mb-6">
               Search for a patient to generate your first report.
             </p>
             <Button onClick={() => router.push("/dashboard")}>
@@ -80,7 +80,7 @@ export default function ReportListPage() {
             {reports.map((report) => (
               <GlassCard
                 key={report.id}
-                className="p-5 cursor-pointer transition-all hover:border-sky-accent/20"
+                className="p-5 cursor-pointer transition-all hover:border-primary/20"
                 hover
                 onClick={() => router.push(`/report/${report.id}`)}
               >
@@ -89,27 +89,27 @@ export default function ReportListPage() {
                     className={cn(
                       "p-2.5 rounded-xl",
                       report.status === "completed"
-                        ? "bg-green-500/10"
+                        ? "bg-severity-low/10"
                         : report.status === "processing"
-                          ? "bg-amber-500/10"
-                          : "bg-red-500/10"
+                          ? "bg-severity-medium/10"
+                          : "bg-severity-high/10"
                     )}
                   >
                     <FileText
                       className={cn(
                         "w-5 h-5",
                         report.status === "completed"
-                          ? "text-green-400"
+                          ? "text-severity-low"
                           : report.status === "processing"
-                            ? "text-amber-400"
-                            : "text-red-400"
+                            ? "text-severity-medium"
+                            : "text-severity-high"
                       )}
                     />
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold truncate">{report.title}</h3>
-                    <div className="flex items-center gap-3 text-sm text-foreground/40 mt-1">
+                    <div className="flex items-center gap-3 text-sm text-text-muted mt-1">
                       <span className="flex items-center gap-1">
                         <User className="w-3.5 h-3.5" />
                         {report.patient.name}
@@ -125,7 +125,7 @@ export default function ReportListPage() {
                     </div>
                   </div>
 
-                  <ChevronRight className="w-5 h-5 text-foreground/20" />
+                  <ChevronRight className="w-5 h-5 text-text-faint" />
                 </div>
               </GlassCard>
             ))}

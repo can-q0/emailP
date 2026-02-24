@@ -17,16 +17,16 @@ export default function SignInPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative">
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-blue-950/40 to-slate-950" />
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-sky-accent/5 rounded-full blur-3xl" />
+      <div className="absolute inset-0 bg-gradient-to-br from-[#FAF7F2] via-[#F3EDE4] to-[#FAF7F2]" />
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
 
       <GlassCard className="relative z-10 w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-sky-accent/10 mb-4">
-            <Mail className="w-8 h-8 text-sky-accent" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
+            <Mail className="w-8 h-8 text-primary" />
           </div>
           <h1 className="text-2xl font-bold mb-2">Welcome to EmailP</h1>
-          <p className="text-foreground/50 text-sm">
+          <p className="text-text-secondary text-sm">
             Sign in with your Google account to connect your Gmail and start
             generating patient reports.
           </p>
@@ -58,7 +58,7 @@ export default function SignInPage() {
           Continue with Google
         </Button>
 
-        <p className="text-xs text-foreground/30 text-center mt-6">
+        <p className="text-xs text-text-faint text-center mt-6">
           We request read-only access to your Gmail to search for patient
           emails. We never send emails on your behalf.
         </p>

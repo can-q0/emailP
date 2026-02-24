@@ -21,7 +21,7 @@ export function PatientSelector({
         <h3 className="text-lg font-semibold mb-1">
           Multiple patients found
         </h3>
-        <p className="text-sm text-foreground/50">
+        <p className="text-sm text-text-secondary">
           Select the correct patient to continue
         </p>
       </div>
@@ -37,17 +37,17 @@ export function PatientSelector({
             <GlassCard
               className={cn(
                 "p-5 cursor-pointer transition-all",
-                "hover:border-sky-accent/30 hover:shadow-[0_0_20px_rgba(56,189,248,0.1)]"
+                "hover:border-primary/30 hover:shadow-md"
               )}
               onClick={() => onSelect(candidate)}
             >
               <div className="flex items-start gap-4">
-                <div className="p-2 rounded-xl bg-sky-accent/10">
-                  <User className="w-5 h-5 text-sky-accent" />
+                <div className="p-2 rounded-xl bg-primary/10">
+                  <User className="w-5 h-5 text-primary" />
                 </div>
                 <div className="flex-1">
                   <h4 className="font-semibold">{candidate.name}</h4>
-                  <div className="flex flex-wrap gap-3 mt-2 text-sm text-foreground/50">
+                  <div className="flex flex-wrap gap-3 mt-2 text-sm text-text-secondary">
                     {candidate.governmentId && (
                       <span className="flex items-center gap-1">
                         <Hash className="w-3.5 h-3.5" />

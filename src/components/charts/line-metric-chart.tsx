@@ -47,27 +47,28 @@ export function LineMetricChart({
           data={chartData}
           margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(45,32,22,0.08)" />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 11, fill: "rgba(255,255,255,0.4)" }}
-            stroke="rgba(255,255,255,0.1)"
+            tick={{ fontSize: 11, fill: "#9C8B7A" }}
+            stroke="rgba(45,32,22,0.1)"
           />
           <YAxis
             domain={[min, max]}
-            tick={{ fontSize: 11, fill: "rgba(255,255,255,0.4)" }}
-            stroke="rgba(255,255,255,0.1)"
+            tick={{ fontSize: 11, fill: "#9C8B7A" }}
+            stroke="rgba(45,32,22,0.1)"
             unit={` ${unit}`}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "rgba(15, 23, 42, 0.95)",
-              border: "1px solid rgba(255,255,255,0.1)",
+              backgroundColor: "#FFFFFF",
+              border: "1px solid #E8DFD3",
               borderRadius: "12px",
               padding: "8px 12px",
+              boxShadow: "0 4px 12px rgba(45,32,22,0.1)",
             }}
-            labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}
-            itemStyle={{ color: "#38bdf8" }}
+            labelStyle={{ color: "#6B5B4D", fontSize: 12 }}
+            itemStyle={{ color: "#D97757" }}
             formatter={(value) => [`${value} ${unit}`, metricName]}
           />
 
@@ -76,8 +77,8 @@ export function LineMetricChart({
             <ReferenceArea
               y1={referenceMin}
               y2={referenceMax}
-              fill="rgba(34, 197, 94, 0.08)"
-              stroke="rgba(34, 197, 94, 0.2)"
+              fill="rgba(58, 143, 92, 0.08)"
+              stroke="rgba(58, 143, 92, 0.2)"
               strokeDasharray="3 3"
             />
           )}
@@ -85,7 +86,7 @@ export function LineMetricChart({
           <Line
             type="monotone"
             dataKey="value"
-            stroke="#38bdf8"
+            stroke="#D97757"
             strokeWidth={2}
             dot={(props: Record<string, unknown>) => {
               const { cx, cy, payload } = props as {
@@ -99,13 +100,13 @@ export function LineMetricChart({
                   cx={cx}
                   cy={cy}
                   r={payload.isAbnormal ? 6 : 4}
-                  fill={payload.isAbnormal ? "#ef4444" : "#38bdf8"}
-                  stroke={payload.isAbnormal ? "#ef4444" : "#38bdf8"}
+                  fill={payload.isAbnormal ? "#C93B3B" : "#D97757"}
+                  stroke={payload.isAbnormal ? "#C93B3B" : "#D97757"}
                   strokeWidth={payload.isAbnormal ? 2 : 0}
                 />
               );
             }}
-            activeDot={{ r: 6, stroke: "#38bdf8", strokeWidth: 2 }}
+            activeDot={{ r: 6, stroke: "#D97757", strokeWidth: 2 }}
           />
         </LineChart>
       </ResponsiveContainer>

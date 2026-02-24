@@ -16,8 +16,8 @@ export function GlassCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-glass-border bg-glass backdrop-blur-xl",
-        hover && "transition-colors hover:bg-glass-hover",
+        "rounded-2xl border border-card-border bg-card shadow-sm",
+        hover && "transition-all hover:shadow-md hover:border-primary/20",
         className
       )}
       {...props}

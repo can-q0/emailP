@@ -38,7 +38,7 @@ export function BlankInput({
       <motion.span
         initial={{ scale: 0.95 }}
         animate={{ scale: 1 }}
-        className="inline-block px-2 py-0.5 font-bold text-sky-accent"
+        className="inline-block px-2 py-0.5 font-bold text-primary"
       >
         {value}
       </motion.span>
@@ -60,8 +60,8 @@ export function BlankInput({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             className={cn(
-              "bg-transparent border-b-2 border-sky-accent outline-none px-1 py-0.5 min-w-[100px] font-mono text-sky-accent placeholder:text-sky-accent/30",
-              "shadow-[0_2px_10px_rgba(56,189,248,0.3)]"
+              "bg-transparent border-b-2 border-primary outline-none px-1 py-0.5 min-w-[100px] font-mono text-primary placeholder:text-primary/30",
+              "shadow-[0_2px_10px_rgba(217,119,87,0.3)]"
             )}
             style={{ width: `${Math.max(inputValue.length, placeholder.length) * 0.6 + 2}em` }}
           />
@@ -70,7 +70,7 @@ export function BlankInput({
         <motion.span
           initial={{ opacity: 0 }}
           animate={{ opacity: 0.4 }}
-          className="inline-block border-b-2 border-dashed border-foreground/30 px-1 py-0.5 min-w-[100px] text-foreground/30 font-mono"
+          className="inline-block border-b-2 border-dashed border-card-border px-1 py-0.5 min-w-[100px] text-text-faint font-mono"
         >
           {placeholder}
         </motion.span>

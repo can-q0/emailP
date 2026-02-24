@@ -13,24 +13,24 @@ interface AttentionPointsProps {
 const severityConfig = {
   high: {
     icon: AlertTriangle,
-    color: "text-red-400",
-    bg: "bg-red-500/10",
-    border: "border-red-500/20",
-    badge: "bg-red-500/20 text-red-400",
+    color: "text-severity-high",
+    bg: "bg-severity-high/10",
+    border: "border-severity-high/20",
+    badge: "bg-severity-high/10 text-severity-high",
   },
   medium: {
     icon: AlertCircle,
-    color: "text-amber-400",
-    bg: "bg-amber-500/10",
-    border: "border-amber-500/20",
-    badge: "bg-amber-500/20 text-amber-400",
+    color: "text-severity-medium",
+    bg: "bg-severity-medium/10",
+    border: "border-severity-medium/20",
+    badge: "bg-severity-medium/10 text-severity-medium",
   },
   low: {
     icon: Info,
-    color: "text-green-400",
-    bg: "bg-green-500/10",
-    border: "border-green-500/20",
-    badge: "bg-green-500/20 text-green-400",
+    color: "text-severity-low",
+    bg: "bg-severity-low/10",
+    border: "border-severity-low/20",
+    badge: "bg-severity-low/10 text-severity-low",
   },
 };
 
@@ -38,8 +38,8 @@ export function AttentionPoints({ points }: AttentionPointsProps) {
   return (
     <section id="attention">
       <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-xl bg-amber-500/10">
-          <AlertTriangle className="w-5 h-5 text-amber-400" />
+        <div className="p-2 rounded-xl bg-severity-medium/10">
+          <AlertTriangle className="w-5 h-5 text-severity-medium" />
         </div>
         <h2 className="text-xl font-bold">Key Attention Points</h2>
       </div>
@@ -73,7 +73,7 @@ export function AttentionPoints({ points }: AttentionPointsProps) {
                         {point.severity}
                       </span>
                     </div>
-                    <p className="text-sm text-foreground/60 mb-3">
+                    <p className="text-sm text-text-secondary mb-3">
                       {point.description}
                     </p>
 
@@ -83,7 +83,7 @@ export function AttentionPoints({ points }: AttentionPointsProps) {
                         {point.relatedMetrics.map((metric) => (
                           <span
                             key={metric}
-                            className="px-2 py-0.5 rounded-full text-xs bg-sky-accent/10 text-sky-accent border border-sky-accent/20"
+                            className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary border border-primary/20"
                           >
                             {metric}
                           </span>
@@ -97,9 +97,9 @@ export function AttentionPoints({ points }: AttentionPointsProps) {
                         {point.recommendations.map((rec, j) => (
                           <li
                             key={j}
-                            className="text-sm text-foreground/50 flex items-start gap-2"
+                            className="text-sm text-text-secondary flex items-start gap-2"
                           >
-                            <span className="text-sky-accent mt-1">•</span>
+                            <span className="text-primary mt-1">•</span>
                             {rec}
                           </li>
                         ))}

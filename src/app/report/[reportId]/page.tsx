@@ -89,7 +89,7 @@ export default function ReportPage() {
       <div className="min-h-screen">
         <Navbar />
         <div className="flex items-center justify-center py-32">
-          <Loader2 className="w-8 h-8 text-sky-accent animate-spin" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
       </div>
     );
@@ -112,11 +112,11 @@ export default function ReportPage() {
           </Button>
           <div className="flex-1">
             <h1 className="text-2xl font-bold">{report.title}</h1>
-            <div className="flex items-center gap-2 text-sm text-foreground/50 mt-1">
+            <div className="flex items-center gap-2 text-sm text-text-secondary mt-1">
               <User className="w-3.5 h-3.5" />
               <span>{report.patient.name}</span>
               {report.patient.governmentId && (
-                <span className="text-foreground/30">
+                <span className="text-text-muted">
                   • ID: {report.patient.governmentId}
                 </span>
               )}
@@ -141,8 +141,8 @@ export default function ReportPage() {
                   className={cn(
                     "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all",
                     activeSection === id
-                      ? "bg-sky-accent/10 text-sky-accent"
-                      : "text-foreground/40 hover:text-foreground/60"
+                      ? "bg-primary/10 text-primary border-l-2 border-primary"
+                      : "text-text-muted hover:text-text-secondary"
                   )}
                 >
                   <Icon className="w-4 h-4" />

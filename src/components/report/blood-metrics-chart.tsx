@@ -40,11 +40,11 @@ export function BloodMetricsChart({ metrics }: BloodMetricsChartProps) {
   return (
     <section id="metrics">
       <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-xl bg-sky-accent/10">
-          <Activity className="w-5 h-5 text-sky-accent" />
+        <div className="p-2 rounded-xl bg-primary/10">
+          <Activity className="w-5 h-5 text-primary" />
         </div>
         <h2 className="text-xl font-bold">Blood Metrics</h2>
-        <span className="text-sm text-foreground/40">
+        <span className="text-sm text-text-muted">
           {metricNames.length} metrics tracked
         </span>
       </div>
@@ -63,11 +63,11 @@ export function BloodMetricsChart({ metrics }: BloodMetricsChartProps) {
                 className={cn(
                   "px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer",
                   selectedMetric === name
-                    ? "bg-sky-accent text-slate-900"
-                    : "border border-glass-border text-foreground/60 hover:text-foreground hover:border-foreground/20",
+                    ? "bg-primary text-white"
+                    : "border border-card-border text-text-secondary hover:text-foreground hover:border-foreground/20",
                   hasAbnormal &&
                     selectedMetric !== name &&
-                    "border-red-500/30 text-red-400"
+                    "border-severity-high/30 text-severity-high"
                 )}
               >
                 {ref?.name || name}
@@ -89,17 +89,17 @@ export function BloodMetricsChart({ metrics }: BloodMetricsChartProps) {
         )}
 
         {/* Legend */}
-        <div className="flex items-center gap-4 mt-4 text-xs text-foreground/40">
+        <div className="flex items-center gap-4 mt-4 text-xs text-text-muted">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-sky-accent" />
+            <span className="w-3 h-3 rounded-full bg-primary" />
             Normal
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-red-500" />
+            <span className="w-3 h-3 rounded-full bg-severity-high" />
             Abnormal
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-8 h-3 rounded bg-green-500/10 border border-green-500/20" />
+            <span className="w-8 h-3 rounded bg-severity-low/10 border border-severity-low/20" />
             Reference Range
           </span>
         </div>

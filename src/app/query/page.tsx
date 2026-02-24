@@ -181,7 +181,7 @@ function QueryPageContent() {
   if (status === "loading" || !session) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-sky-accent border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -195,7 +195,7 @@ function QueryPageContent() {
           <>
             <div className="text-center mb-12">
               <h1 className="text-2xl font-bold mb-2">Build Your Query</h1>
-              <p className="text-foreground/50">
+              <p className="text-text-secondary">
                 Fill in the blanks to search for patient emails
               </p>
             </div>
@@ -209,7 +209,7 @@ function QueryPageContent() {
 
         {(step === "searching" || step === "generating") && (
           <div className="flex flex-col items-center justify-center py-24">
-            <Loader2 className="w-10 h-10 text-sky-accent animate-spin mb-6" />
+            <Loader2 className="w-10 h-10 text-primary animate-spin mb-6" />
             <p className="text-lg font-medium">{progress}</p>
           </div>
         )}
@@ -232,7 +232,7 @@ export default function QueryPage() {
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-sky-accent border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       }
     >

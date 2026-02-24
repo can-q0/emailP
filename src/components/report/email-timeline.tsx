@@ -23,11 +23,11 @@ export function EmailTimeline({ emails }: EmailTimelineProps) {
   return (
     <section id="emails">
       <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-xl bg-purple-500/10">
-          <Mail className="w-5 h-5 text-purple-400" />
+        <div className="p-2 rounded-xl bg-[#6B5B4D]/10">
+          <Mail className="w-5 h-5 text-[#6B5B4D]" />
         </div>
         <h2 className="text-xl font-bold">Email Timeline</h2>
-        <span className="text-sm text-foreground/40">
+        <span className="text-sm text-text-muted">
           {emails.length} emails
         </span>
       </div>
@@ -46,7 +46,7 @@ export function EmailTimeline({ emails }: EmailTimelineProps) {
               <GlassCard
                 className={cn(
                   "transition-all cursor-pointer",
-                  isExpanded && "border-sky-accent/20"
+                  isExpanded && "border-primary/20"
                 )}
                 onClick={() => setExpandedId(isExpanded ? null : email.id)}
               >
@@ -55,14 +55,14 @@ export function EmailTimeline({ emails }: EmailTimelineProps) {
                     className={cn(
                       "p-1.5 rounded-lg",
                       email.isLabReport
-                        ? "bg-green-500/10"
+                        ? "bg-severity-low/10"
                         : "bg-foreground/5"
                     )}
                   >
                     {email.isLabReport ? (
-                      <FlaskConical className="w-4 h-4 text-green-400" />
+                      <FlaskConical className="w-4 h-4 text-severity-low" />
                     ) : (
-                      <Mail className="w-4 h-4 text-foreground/40" />
+                      <Mail className="w-4 h-4 text-text-muted" />
                     )}
                   </div>
 
@@ -72,12 +72,12 @@ export function EmailTimeline({ emails }: EmailTimelineProps) {
                         {email.subject || "(no subject)"}
                       </p>
                       {email.isLabReport && (
-                        <span className="px-1.5 py-0.5 rounded text-xs bg-green-500/10 text-green-400 shrink-0">
+                        <span className="px-1.5 py-0.5 rounded text-xs bg-severity-low/10 text-severity-low shrink-0">
                           Lab Report
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-foreground/40 mt-0.5">
+                    <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
                       <span className="truncate">{email.from}</span>
                       {email.date && (
                         <>
@@ -91,9 +91,9 @@ export function EmailTimeline({ emails }: EmailTimelineProps) {
                   </div>
 
                   {isExpanded ? (
-                    <ChevronUp className="w-4 h-4 text-foreground/40 shrink-0" />
+                    <ChevronUp className="w-4 h-4 text-text-muted shrink-0" />
                   ) : (
-                    <ChevronDown className="w-4 h-4 text-foreground/40 shrink-0" />
+                    <ChevronDown className="w-4 h-4 text-text-muted shrink-0" />
                   )}
                 </div>
 
@@ -106,8 +106,8 @@ export function EmailTimeline({ emails }: EmailTimelineProps) {
                       transition={{ duration: 0.2 }}
                       className="overflow-hidden"
                     >
-                      <div className="px-4 pb-4 border-t border-glass-border pt-3">
-                        <p className="text-sm text-foreground/60 whitespace-pre-wrap max-h-60 overflow-y-auto">
+                      <div className="px-4 pb-4 border-t border-card-border pt-3">
+                        <p className="text-sm text-text-secondary whitespace-pre-wrap max-h-60 overflow-y-auto">
                           {email.snippet || email.body?.slice(0, 500) || "No content"}
                         </p>
                       </div>

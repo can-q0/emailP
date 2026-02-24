@@ -21,7 +21,7 @@ export default function DashboardPage() {
   if (status === "loading" || !session) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-sky-accent border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -42,7 +42,7 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold mb-2">
             Welcome back, {session.user?.name?.split(" ")[0]}
           </h1>
-          <p className="text-foreground/50">
+          <p className="text-text-secondary">
             Search for a patient to generate a new report.
           </p>
         </div>
@@ -51,7 +51,7 @@ export default function DashboardPage() {
         <GlassCard className="p-8 mb-12">
           <form onSubmit={handleSearch} className="flex gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/40" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
               <Input
                 value={patientName}
                 onChange={(e) => setPatientName(e.target.value)}
@@ -75,12 +75,12 @@ export default function DashboardPage() {
             onClick={() => router.push("/report")}
           >
             <div className="flex items-start gap-4">
-              <div className="p-2.5 rounded-xl bg-sky-accent/10">
-                <FileText className="w-5 h-5 text-sky-accent" />
+              <div className="p-2.5 rounded-xl bg-primary/10">
+                <FileText className="w-5 h-5 text-primary" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">View Reports</h3>
-                <p className="text-sm text-foreground/50">
+                <p className="text-sm text-text-secondary">
                   Browse your previously generated patient reports.
                 </p>
               </div>
@@ -88,12 +88,12 @@ export default function DashboardPage() {
           </GlassCard>
           <GlassCard className="p-6 cursor-pointer" hover>
             <div className="flex items-start gap-4">
-              <div className="p-2.5 rounded-xl bg-amber-500/10">
-                <Clock className="w-5 h-5 text-amber-400" />
+              <div className="p-2.5 rounded-xl bg-severity-medium/10">
+                <Clock className="w-5 h-5 text-severity-medium" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">Recent Activity</h3>
-                <p className="text-sm text-foreground/50">
+                <p className="text-sm text-text-secondary">
                   Your recent email syncs and report generation.
                 </p>
               </div>

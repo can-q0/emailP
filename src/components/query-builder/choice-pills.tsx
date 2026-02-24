@@ -22,7 +22,7 @@ export function ChoicePills({
       <motion.span
         initial={{ scale: 0.95 }}
         animate={{ scale: 1 }}
-        className="inline-block px-2 py-0.5 font-bold text-sky-accent"
+        className="inline-block px-2 py-0.5 font-bold text-primary"
       >
         {selectedValue}
       </motion.span>
@@ -31,7 +31,7 @@ export function ChoicePills({
 
   if (!isActive) {
     return (
-      <span className="inline-block px-1 py-0.5 text-foreground/30 font-mono">
+      <span className="inline-block px-1 py-0.5 text-text-faint font-mono">
         [...]
       </span>
     );
@@ -48,8 +48,8 @@ export function ChoicePills({
           onClick={() => onSelect(option)}
           className={cn(
             "px-3 py-1 rounded-full text-sm font-medium transition-all cursor-pointer",
-            "border border-sky-accent/30 text-sky-accent hover:bg-sky-accent/20 hover:border-sky-accent/60",
-            "shadow-[0_0_10px_rgba(56,189,248,0.1)]"
+            "border border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/60",
+            "shadow-[0_0_10px_rgba(217,119,87,0.1)]"
           )}
         >
           {option}

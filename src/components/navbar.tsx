@@ -11,11 +11,11 @@ export function Navbar() {
   if (!session) return null;
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-glass-border bg-background/80 backdrop-blur-xl">
+    <nav className="sticky top-0 z-50 border-b border-card-border bg-[#FAF7F2]/90 backdrop-blur-md">
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <Mail className="w-5 h-5 text-sky-accent" />
+            <Mail className="w-5 h-5 text-primary" />
             <span className="font-semibold tracking-tight">EmailP</span>
           </Link>
           <div className="flex items-center gap-1">
@@ -41,7 +41,7 @@ export function Navbar() {
               className="w-7 h-7 rounded-full"
             />
           )}
-          <span className="text-sm text-foreground/60">
+          <span className="text-sm text-text-secondary">
             {session.user?.name}
           </span>
           <Button
