@@ -80,8 +80,14 @@ function QueryPageContent() {
         }
 
         // Generate report directly
+        const patId = disambData.candidates[0]?.id;
+        if (!patId) {
+          setProgress("Could not find patient. Please try again.");
+          setTimeout(() => setStep("query"), 2000);
+          return;
+        }
         await generateReport(
-          disambData.candidates[0]?.id || syncData.emails[0]?.patientId,
+          patId,
           emailIds,
           values.patientName || patientName
         );

@@ -19,6 +19,9 @@ import {
   ArrowLeft,
   Loader2,
   User,
+  Send,
+  X,
+  CheckCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +40,34 @@ export default function ReportPage() {
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState("summary");
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [sendEmail, setSendEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<"success" | "error" | null>(null);
+
+  const handleSendReport = async () => {
+    if (!sendEmail || !reportId) return;
+    setSending(true);
+    setSendResult(null);
+    try {
+      const res = await fetch("/api/reports/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId, recipientEmail: sendEmail }),
+      });
+      if (!res.ok) throw new Error();
+      setSendResult("success");
+      setTimeout(() => {
+        setShowSendModal(false);
+        setSendResult(null);
+        setSendEmail("");
+      }, 2000);
+    } catch {
+      setSendResult("error");
+    } finally {
+      setSending(false);
+    }
+  };
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/auth/signin");
@@ -122,7 +153,64 @@ export default function ReportPage() {
               )}
             </div>
           </div>
+          <Button onClick={() => setShowSendModal(true)}>
+            <Send className="w-4 h-4 mr-2" />
+            Send Report
+          </Button>
         </div>
+
+        {/* Send Report Modal */}
+        {showSendModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="bg-card border border-card-border rounded-2xl shadow-xl w-full max-w-md p-6 mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Send Report via Email</h2>
+                <button
+                  onClick={() => { setShowSendModal(false); setSendResult(null); }}
+                  className="p-1 rounded-lg hover:bg-secondary/50 text-text-muted"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              {sendResult === "success" ? (
+                <div className="flex flex-col items-center py-6 text-green-600">
+                  <CheckCircle className="w-10 h-10 mb-3" />
+                  <p className="font-medium">Report sent successfully!</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-text-secondary mb-4">
+                    Send &quot;{report.title}&quot; to a recipient.
+                  </p>
+                  <input
+                    type="email"
+                    placeholder="recipient@example.com"
+                    value={sendEmail}
+                    onChange={(e) => setSendEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSendReport()}
+                    className="w-full px-4 py-3 rounded-xl border border-card-border bg-background text-foreground placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/30 mb-3"
+                  />
+                  {sendResult === "error" && (
+                    <p className="text-sm text-red-500 mb-3">Failed to send. Check the email and try again.</p>
+                  )}
+                  <div className="flex justify-end gap-3">
+                    <Button variant="ghost" onClick={() => setShowSendModal(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleSendReport} disabled={sending || !sendEmail}>
+                      {sending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      {sending ? "Sending..." : "Send"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-8">
           {/* Sticky navigation */}
@@ -141,10 +229,13 @@ export default function ReportPage() {
                   className={cn(
                     "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all",
                     activeSection === id
-                      ? "bg-primary/10 text-primary border-l-2 border-primary"
+                      ? "bg-primary/10 text-primary font-medium"
                       : "text-text-muted hover:text-text-secondary"
                   )}
                 >
+                  {activeSection === id && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                  )}
                   <Icon className="w-4 h-4" />
                   {label}
                 </a>
