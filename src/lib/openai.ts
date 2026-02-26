@@ -21,7 +21,6 @@ export async function classifyEmail(
     async () => {
       const response = await openai.chat.completions.create({
         model: "gpt-5",
-        temperature: 0.0,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -108,7 +107,6 @@ export async function extractBloodMetrics(
     async () => {
       const response = await openai.chat.completions.create({
         model: "gpt-5",
-        temperature: 0.0,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -266,7 +264,6 @@ export async function generateSummaryAndAttentionPoints(
     async () => {
       const response = await openai.chat.completions.create({
         model: "gpt-5",
-        temperature: 0.3,
         response_format: { type: "json_object" },
         messages: [
           {
