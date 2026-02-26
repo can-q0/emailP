@@ -51,6 +51,8 @@ export const bloodMetricReferences: Record<string, MetricReference> = {
   hba1c: { name: "HbA1c", unit: "%", min: 4.0, max: 5.6, category: "Diabetes" },
   esr: { name: "ESR", unit: "mm/hr", min: 0, max: 20, category: "Inflammation" },
   crp: { name: "CRP", unit: "mg/L", min: 0, max: 3, category: "Inflammation" },
+  procalcitonin: { name: "Procalcitonin", unit: "ng/mL", min: 0, max: 0.5, category: "Inflammation" },
+  antiTPO: { name: "Anti-TPO", unit: "IU/mL", min: 0, max: 35, category: "Thyroid Panel" },
 };
 
 export const metricCategories = [...new Set(Object.values(bloodMetricReferences).map((m) => m.category))];

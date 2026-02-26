@@ -41,7 +41,7 @@ export function LineMetricChart({
   const max = Math.max(...values, referenceMax ?? -Infinity) * 1.1;
 
   return (
-    <div className="w-full h-64">
+    <div className="w-full h-80">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}

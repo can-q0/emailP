@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
-import { Mail, FileText, LogOut } from "lucide-react";
+import { Mail, FileText, LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function Navbar() {
@@ -22,6 +22,12 @@ export function Navbar() {
             <Link href="/dashboard">
               <Button variant="ghost" size="sm">
                 Dashboard
+              </Button>
+            </Link>
+            <Link href="/patients">
+              <Button variant="ghost" size="sm">
+                <Users className="w-4 h-4 mr-1" />
+                Patients
               </Button>
             </Link>
             <Link href="/report">

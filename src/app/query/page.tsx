@@ -9,7 +9,8 @@ import { PatientSelector } from "@/components/query-builder/patient-selector";
 import { GlassCard } from "@/components/ui/glass-card";
 import { defaultQueryTemplate } from "@/config/query-templates";
 import { QueryValues, PatientCandidate } from "@/types";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 function QueryPageContent() {
   const { data: session, status } = useSession();
@@ -18,10 +19,17 @@ function QueryPageContent() {
   const patientName = searchParams.get("patient") || "";
 
   const [step, setStep] = useState<
-    "query" | "searching" | "disambiguate" | "generating"
+    "query" | "searching" | "disambiguate" | "generating" | "failed"
   >("query");
   const [candidates, setCandidates] = useState<PatientCandidate[]>([]);
   const [progress, setProgress] = useState("");
+  const [failedReport, setFailedReport] = useState<{
+    reportId: string;
+    patientId: string;
+    emailIds: string[];
+    patientName: string;
+    errorMessage: string;
+  } | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/auth/signin");
@@ -141,7 +149,7 @@ function QueryPageContent() {
     name: string
   ) => {
     setStep("generating");
-    setProgress("Generating report...");
+    setProgress("Step 1/3: Classifying emails...");
 
     const res = await fetch("/api/ai/generate-report", {
       method: "POST",
@@ -163,10 +171,9 @@ function QueryPageContent() {
 
         if (report.step) {
           const steps: Record<string, string> = {
-            classifying: "Classifying emails...",
-            extracting_metrics: "Extracting blood metrics...",
-            generating_summary: "Generating summary...",
-            generating_attention_points: "Analyzing attention points...",
+            classifying: "Step 1/3: Classifying emails...",
+            extracting_metrics: "Step 2/3: Extracting blood metrics...",
+            generating_summary: "Step 3/3: Generating summary & analysis...",
           };
           setProgress(steps[report.step] || report.step);
         }
@@ -176,12 +183,36 @@ function QueryPageContent() {
           if (report.status === "completed") {
             router.push(`/report/${data.reportId}`);
           } else {
-            setProgress("Report generation failed. Please try again.");
-            setTimeout(() => setStep("query"), 3000);
+            setFailedReport({
+              reportId: data.reportId,
+              patientId,
+              emailIds,
+              patientName: name,
+              errorMessage: report.step || "An unexpected error occurred.",
+            });
+            setStep("failed");
           }
         }
       }, 2000);
     }
+  };
+
+  const handleRetry = async () => {
+    if (!failedReport) return;
+    // Delete the failed report, then retry
+    await fetch(`/api/reports?id=${failedReport.reportId}`, { method: "DELETE" });
+    setFailedReport(null);
+    await generateReport(
+      failedReport.patientId,
+      failedReport.emailIds,
+      failedReport.patientName
+    );
+  };
+
+  const handleStartOver = () => {
+    setFailedReport(null);
+    setStep("query");
+    setProgress("");
   };
 
   if (status === "loading" || !session) {
@@ -217,6 +248,27 @@ function QueryPageContent() {
           <div className="flex flex-col items-center justify-center py-24">
             <Loader2 className="w-10 h-10 text-primary animate-spin mb-6" />
             <p className="text-lg font-medium">{progress}</p>
+          </div>
+        )}
+
+        {step === "failed" && failedReport && (
+          <div className="flex flex-col items-center justify-center py-24 max-w-md mx-auto">
+            <div className="p-3 rounded-full bg-severity-high/10 mb-6">
+              <AlertTriangle className="w-10 h-10 text-severity-high" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Report Generation Failed</h2>
+            <p className="text-sm text-text-secondary text-center mb-6">
+              {failedReport.errorMessage}
+            </p>
+            <div className="flex gap-3">
+              <Button variant="ghost" onClick={handleStartOver}>
+                Start Over
+              </Button>
+              <Button onClick={handleRetry}>
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Retry
+              </Button>
+            </div>
           </div>
         )}
 

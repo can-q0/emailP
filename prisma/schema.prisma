@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
 }
 
 model User {
@@ -28,12 +28,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -81,12 +81,12 @@ model Email {
   from            String?
   to              String?
   date            DateTime?
-  snippet         String?       @db.Text
-  body            String?       @db.Text
-  htmlBody        String?       @db.Text
-  labels          String[]
+  snippet         String?
+  body            String?
+  htmlBody        String?
+  labels          String        @default("[]")
   isLabReport     Boolean       @default(false)
-  extractedData   Json?
+  extractedData   String?
   patientId       String?
   patient         Patient?      @relation(fields: [patientId], references: [id])
   reportEmails    ReportEmail[]
@@ -120,10 +120,10 @@ model BloodMetric {
 model Report {
   id              String        @id @default(cuid())
   title           String
-  summary         String?       @db.Text
-  attentionPoints Json?
-  status          String        @default("pending") // pending, processing, completed, failed
-  step            String?       // current processing step
+  summary         String?
+  attentionPoints String?
+  status          String        @default("pending")
+  step            String?
   patientId       String
   patient         Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
   userId          String
@@ -154,8 +154,8 @@ model EmailSyncLog {
   query       String
   emailsFound Int      @default(0)
   emailsSynced Int     @default(0)
-  status      String   @default("pending") // pending, syncing, completed, failed
-  error       String?  @db.Text
+  status      String   @default("pending")
+  error       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

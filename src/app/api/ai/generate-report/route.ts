@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import {
-  classifyEmail,
-  extractBloodMetrics,
-  generateSummary,
-  generateAttentionPoints,
+  classifyEmailsBatch,
+  extractBloodMetricsBatch,
+  generateSummaryAndAttentionPoints,
 } from "@/lib/openai";
 import { normalizeMetricName, getMetricReference } from "@/lib/blood-metrics";
+import { parseBody, generateReportSchema } from "@/lib/validations";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -15,18 +16,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { patientId, emailIds, title } = await req.json();
-
-  if (!patientId || !emailIds?.length) {
+  const rl = rateLimit(`generate-report:${session.user.id}`, { limit: 5, windowMs: 60_000 });
+  if (!rl.allowed) {
     return NextResponse.json(
-      { error: "Patient ID and email IDs required" },
-      { status: 400 }
+      { error: "Too many requests. Please wait a minute before generating another report." },
+      { status: 429 }
     );
   }
 
+  const parsed = await parseBody(req, generateReportSchema);
+  if (!parsed.success) return parsed.response;
+  const { patientId, emailIds, title } = parsed.data;
+
   const userId = session.user.id;
 
-  // Verify patient and emails belong to user
   const patient = await prisma.patient.findFirst({
     where: { id: patientId, userId },
   });
@@ -40,7 +43,6 @@ export async function POST(req: NextRequest) {
     orderBy: { date: "asc" },
   });
 
-  // Create report
   const report = await prisma.report.create({
     data: {
       title: title || `Report for ${patient.name}`,
@@ -54,7 +56,6 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Process asynchronously
   processReport(report.id, patient.name, emails, userId).catch(console.error);
 
   return NextResponse.json({ reportId: report.id, status: "processing" });
@@ -72,25 +73,31 @@ async function processReport(
   userId: string
 ) {
   try {
-    // Step 1: Classify emails
+    // Step 1: Classify ALL emails in parallel
     await prisma.report.update({
       where: { id: reportId },
       data: { step: "classifying" },
     });
 
+    const emailsWithBody = emails.filter((e) => e.body);
+    const classifications = await classifyEmailsBatch(
+      emailsWithBody.map((e) => ({
+        id: e.id,
+        body: e.body!,
+        subject: e.subject || "",
+      }))
+    );
+
     const labEmails: typeof emails = [];
-    for (const email of emails) {
-      if (!email.body) continue;
-      const classification = await classifyEmail(
-        email.body,
-        email.subject || ""
-      );
+    for (const email of emailsWithBody) {
+      const classification = classifications.get(email.id);
+      if (!classification) continue;
 
       await prisma.email.update({
         where: { id: email.id },
         data: {
           isLabReport: classification.isLabReport,
-          extractedData: JSON.parse(JSON.stringify(classification)),
+          extractedData: JSON.stringify(classification),
         },
       });
 
@@ -99,11 +106,15 @@ async function processReport(
       }
     }
 
-    // Step 2: Extract blood metrics
+    // Step 2: Extract blood metrics from ALL lab emails in parallel
     await prisma.report.update({
       where: { id: reportId },
       data: { step: "extracting_metrics" },
     });
+
+    const metricsMap = await extractBloodMetricsBatch(
+      labEmails.filter((e) => e.body).map((e) => ({ id: e.id, body: e.body! }))
+    );
 
     const allMetrics: Array<{
       metricName: string;
@@ -116,9 +127,7 @@ async function processReport(
     }> = [];
 
     for (const email of labEmails) {
-      if (!email.body) continue;
-      const metrics = await extractBloodMetrics(email.body);
-
+      const metrics = metricsMap.get(email.id) || [];
       for (const metric of metrics) {
         const normalized = normalizeMetricName(metric.metricName);
         const ref = getMetricReference(metric.metricName);
@@ -150,46 +159,37 @@ async function processReport(
       }
     }
 
-    // Step 3: Generate summary
+    // Step 3: Generate summary AND attention points in ONE call
     await prisma.report.update({
       where: { id: reportId },
       data: { step: "generating_summary" },
     });
 
     const emailSummaries = labEmails.map((e) => {
-      const dateStr = e.date ? e.date.toISOString().split("T")[0] : "unknown date";
+      const dateStr = e.date
+        ? e.date.toISOString().split("T")[0]
+        : "unknown date";
       return `Date: ${dateStr}\nSubject: ${e.subject}\n\n${e.body?.slice(0, 2000)}`;
     });
 
-    const summary = await generateSummary(patientName, emailSummaries);
-
-    await prisma.report.update({
-      where: { id: reportId },
-      data: { summary },
-    });
-
-    // Step 4: Generate attention points
-    await prisma.report.update({
-      where: { id: reportId },
-      data: { step: "generating_attention_points" },
-    });
-
-    const attentionPoints = await generateAttentionPoints(
-      patientName,
-      allMetrics.map((m) => ({
-        metricName: m.metricName,
-        value: m.value,
-        unit: m.unit,
-        isAbnormal: m.isAbnormal,
-        measuredAt: m.measuredAt.toISOString(),
-      })),
-      summary
-    );
+    const { summary, attentionPoints } =
+      await generateSummaryAndAttentionPoints(
+        patientName,
+        emailSummaries,
+        allMetrics.map((m) => ({
+          metricName: m.metricName,
+          value: m.value,
+          unit: m.unit,
+          isAbnormal: m.isAbnormal,
+          measuredAt: m.measuredAt.toISOString(),
+        }))
+      );
 
     await prisma.report.update({
       where: { id: reportId },
       data: {
-        attentionPoints: JSON.parse(JSON.stringify(attentionPoints)),
+        summary,
+        attentionPoints: JSON.stringify(attentionPoints),
         status: "completed",
         step: null,
       },

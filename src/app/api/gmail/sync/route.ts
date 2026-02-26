@@ -8,6 +8,8 @@ import {
 } from "@/lib/gmail";
 import { extractBody } from "@/lib/email-parser";
 import { prisma } from "@/lib/prisma";
+import { parseBody, gmailSyncSchema } from "@/lib/validations";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -15,10 +17,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { query, patientName } = await req.json();
-  if (!query) {
-    return NextResponse.json({ error: "Query required" }, { status: 400 });
+  const rl = rateLimit(`gmail-sync:${session.user.id}`, { limit: 10, windowMs: 60_000 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many sync requests. Please wait a minute." },
+      { status: 429 }
+    );
   }
+
+  const parsed = await parseBody(req, gmailSyncSchema);
+  if (!parsed.success) return parsed.response;
+  const { query, patientName } = parsed.data;
 
   const userId = session.user.id;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getGmailClient, searchGmailMessages } from "@/lib/gmail";
+import { parseSearchParams, gmailSearchSchema } from "@/lib/validations";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -8,10 +9,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const query = req.nextUrl.searchParams.get("q");
-  if (!query) {
-    return NextResponse.json({ error: "Query required" }, { status: 400 });
-  }
+  const parsed = parseSearchParams(req, gmailSearchSchema);
+  if (!parsed.success) return parsed.response;
+  const { q: query } = parsed.data;
 
   try {
     const gmail = await getGmailClient(session.user.id);

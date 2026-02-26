@@ -22,7 +22,10 @@ import {
   Send,
   X,
   CheckCircle,
+  Trash2,
+  Download,
 } from "lucide-react";
+import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
 const sections = [
@@ -44,6 +47,20 @@ export default function ReportPage() {
   const [sendEmail, setSendEmail] = useState("");
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<"success" | "error" | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/reports?id=${reportId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      router.replace("/report");
+    } catch {
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
 
   const handleSendReport = async () => {
     if (!sendEmail || !reportId) return;
@@ -141,22 +158,43 @@ export default function ReportPage() {
             <ArrowLeft className="w-4 h-4 mr-1" />
             Back
           </Button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold">{report.title}</h1>
-            <div className="flex items-center gap-2 text-sm text-text-secondary mt-1">
-              <User className="w-3.5 h-3.5" />
-              <span>{report.patient.name}</span>
-              {report.patient.governmentId && (
-                <span className="text-text-muted">
-                  • ID: {report.patient.governmentId}
-                </span>
-              )}
+          <div className="flex-1 flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-primary/10">
+              <User className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">{report.patient.name}</h1>
+              <div className="flex items-center gap-2 text-sm text-text-muted mt-0.5">
+                {report.patient.governmentId && (
+                  <span>TC: {report.patient.governmentId}</span>
+                )}
+                <span>•</span>
+                <span>{format(new Date(report.createdAt), "MMM d, yyyy")}</span>
+              </div>
             </div>
           </div>
-          <Button onClick={() => setShowSendModal(true)}>
-            <Send className="w-4 h-4 mr-2" />
-            Send Report
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => window.open(`/api/reports/pdf?id=${reportId}`, "_blank")}
+            >
+              <Download className="w-4 h-4 mr-1" />
+              PDF
+            </Button>
+            <Button onClick={() => setShowSendModal(true)}>
+              <Send className="w-4 h-4 mr-2" />
+              Send Report
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDeleteModal(true)}
+              className="text-severity-high hover:text-severity-high"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Send Report Modal */}
@@ -180,7 +218,7 @@ export default function ReportPage() {
               ) : (
                 <>
                   <p className="text-sm text-text-secondary mb-4">
-                    Send &quot;{report.title}&quot; to a recipient.
+                    Send report for {report.patient.name} to a recipient.
                   </p>
                   <input
                     type="email"
@@ -208,6 +246,35 @@ export default function ReportPage() {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="bg-card border border-card-border rounded-2xl shadow-xl w-full max-w-sm p-6 mx-4">
+              <h2 className="text-lg font-semibold mb-2">Delete Report?</h2>
+              <p className="text-sm text-text-secondary mb-6">
+                This will permanently delete the report and all associated blood metrics. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="bg-severity-high hover:bg-severity-high/90 text-white"
+                >
+                  {deleting ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 mr-2" />
+                  )}
+                  {deleting ? "Deleting..." : "Delete"}
+                </Button>
+              </div>
             </div>
           </div>
         )}

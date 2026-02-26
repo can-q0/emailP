@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Navbar } from "@/components/navbar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
-import { FileText, User, Calendar, Activity, ChevronRight, Loader2 } from "lucide-react";
+import { FileText, User, Calendar, Activity, ChevronRight, Loader2, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +24,21 @@ export default function ReportListPage() {
   const router = useRouter();
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteReport = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm("Delete this report? This cannot be undone.")) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/reports?id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setReports((prev) => prev.filter((r) => r.id !== id));
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/auth/signin");
@@ -125,6 +140,17 @@ export default function ReportListPage() {
                     </div>
                   </div>
 
+                  <button
+                    onClick={(e) => handleDeleteReport(e, report.id)}
+                    disabled={deletingId === report.id}
+                    className="p-1.5 rounded-lg hover:bg-severity-high/10 text-text-faint hover:text-severity-high transition-colors"
+                  >
+                    {deletingId === report.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
                   <ChevronRight className="w-5 h-5 text-text-faint" />
                 </div>
               </GlassCard>

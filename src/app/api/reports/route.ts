@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { parseSearchParams, reportIdSchema } from "@/lib/validations";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -30,6 +31,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ...report,
+      attentionPoints: report.attentionPoints
+        ? JSON.parse(report.attentionPoints)
+        : [],
       emails: report.reportEmails.map((re) => re.email),
     });
   }
@@ -44,4 +48,30 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(reports);
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const parsed = parseSearchParams(req, reportIdSchema);
+  if (!parsed.success) return parsed.response;
+  const { id } = parsed.data;
+
+  const report = await prisma.report.findUnique({
+    where: { id, userId: session.user.id },
+  });
+
+  if (!report) {
+    return NextResponse.json({ error: "Report not found" }, { status: 404 });
+  }
+
+  // Delete blood metrics tied to this report (no cascade on that relation)
+  await prisma.bloodMetric.deleteMany({ where: { reportId: id } });
+  // Delete report (reportEmails cascade automatically)
+  await prisma.report.delete({ where: { id } });
+
+  return NextResponse.json({ success: true });
 }

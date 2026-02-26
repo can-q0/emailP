@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { classifyEmail } from "@/lib/openai";
+import { parseBody, disambiguateSchema } from "@/lib/validations";
+
+// Extract 11-digit Turkish government IDs from text
+function extractGovernmentIds(text: string): string[] {
+  // Match standalone 11-digit numbers (TC Kimlik)
+  const matches = text.match(/(?<!\d)\d{11}(?!\d)/g) || [];
+  // Filter out obviously invalid ones (can't start with 0)
+  return [...new Set(matches.filter((id) => !id.startsWith("0")))];
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -9,102 +17,148 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { patientName, emailIds } = await req.json();
+  const parsed = await parseBody(req, disambiguateSchema);
+  if (!parsed.success) return parsed.response;
+  const { patientName, emailIds, governmentId, create } = parsed.data;
 
-  if (!patientName || !emailIds?.length) {
-    return NextResponse.json(
-      { error: "Patient name and email IDs required" },
-      { status: 400 }
-    );
+  const userId = session.user.id;
+
+  // If "create" flag, upsert patient and return
+  if (create) {
+    const patient = await prisma.patient.upsert({
+      where: {
+        governmentId_userId: {
+          governmentId: governmentId || `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+          userId,
+        },
+      },
+      update: { name: patientName },
+      create: {
+        name: patientName,
+        governmentId: governmentId || `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+        userId,
+      },
+    });
+    return NextResponse.json({
+      needsDisambiguation: false,
+      candidates: [{ id: patient.id, name: patient.name, governmentId: patient.governmentId }],
+    });
   }
 
-  // Fetch emails
-  const emails = await prisma.email.findMany({
-    where: { id: { in: emailIds }, userId: session.user.id },
-    select: { id: true, subject: true, body: true, from: true, date: true },
-  });
+  // Fetch synced emails to extract government IDs
+  const emails = emailIds?.length
+    ? await prisma.email.findMany({
+        where: { id: { in: emailIds }, userId },
+        select: { id: true, body: true, subject: true, date: true },
+      })
+    : [];
 
-  // Extract government IDs from emails using AI
-  const candidates: Map<
-    string,
-    { governmentId: string; name: string; emailIds: string[]; lastDate?: Date }
-  > = new Map();
+  // Group emails by government ID found in body
+  const govIdMap = new Map<string, { emailIds: string[]; lastDate: Date | null }>();
 
   for (const email of emails) {
-    if (!email.body) continue;
+    const text = `${email.subject || ""} ${email.body || ""}`;
+    const ids = extractGovernmentIds(text);
 
-    try {
-      const classification = await classifyEmail(
-        email.body,
-        email.subject || ""
-      );
-
-      if (classification.governmentId) {
-        const key = classification.governmentId;
-        const existing = candidates.get(key);
-        if (existing) {
-          existing.emailIds.push(email.id);
-          if (email.date && (!existing.lastDate || email.date > existing.lastDate)) {
-            existing.lastDate = email.date;
-          }
-        } else {
-          candidates.set(key, {
-            governmentId: classification.governmentId,
-            name: classification.patientName || patientName,
-            emailIds: [email.id],
-            lastDate: email.date ?? undefined,
-          });
+    for (const gid of ids) {
+      const entry = govIdMap.get(gid);
+      if (entry) {
+        entry.emailIds.push(email.id);
+        if (email.date && (!entry.lastDate || email.date > entry.lastDate)) {
+          entry.lastDate = email.date;
         }
+      } else {
+        govIdMap.set(gid, {
+          emailIds: [email.id],
+          lastDate: email.date,
+        });
       }
-    } catch {
-      // Skip emails that fail classification
     }
   }
 
-  // Also check for existing patients with this name
+  // Check existing patients matching this name
   const existingPatients = await prisma.patient.findMany({
-    where: {
-      userId: session.user.id,
-      name: { contains: patientName, mode: "insensitive" },
-    },
-    include: {
-      _count: { select: { emails: true } },
-      emails: {
-        orderBy: { date: "desc" },
-        take: 1,
-        select: { date: true },
-      },
-    },
+    where: { userId, name: { contains: patientName } },
+    include: { _count: { select: { emails: true } } },
   });
 
-  const result = [
-    ...existingPatients.map((p) => ({
+  // Build candidate list: merge existing patients + newly discovered gov IDs
+  const candidates: Array<{
+    id: string | null;
+    name: string;
+    governmentId: string | null;
+    emailCount: number;
+    lastEmailDate?: string;
+    source: "existing" | "extracted";
+  }> = [];
+
+  // Add existing patients
+  for (const p of existingPatients) {
+    candidates.push({
       id: p.id,
       name: p.name,
       governmentId: p.governmentId,
       emailCount: p._count.emails,
-      lastEmailDate: p.emails[0]?.date?.toISOString(),
-      source: "existing" as const,
-    })),
-    ...[...candidates.values()]
-      .filter(
-        (c) =>
-          !existingPatients.some(
-            (p) => p.governmentId === c.governmentId
-          )
-      )
-      .map((c) => ({
+      source: "existing",
+    });
+  }
+
+  // Add newly discovered gov IDs not already in existing patients
+  const existingGovIds = new Set(existingPatients.map((p) => p.governmentId).filter(Boolean));
+
+  for (const [gid, data] of govIdMap) {
+    if (!existingGovIds.has(gid)) {
+      candidates.push({
         id: null,
+        name: patientName,
+        governmentId: gid,
+        emailCount: data.emailIds.length,
+        lastEmailDate: data.lastDate?.toISOString(),
+        source: "extracted",
+      });
+    }
+  }
+
+  // If no candidates at all, find or create a default patient
+  if (candidates.length === 0) {
+    const patient = await prisma.patient.upsert({
+      where: {
+        governmentId_userId: {
+          governmentId: `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+          userId,
+        },
+      },
+      update: {},
+      create: {
+        name: patientName,
+        governmentId: `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+        userId,
+      },
+    });
+    candidates.push({
+      id: patient.id,
+      name: patient.name,
+      governmentId: patient.governmentId,
+      emailCount: 0,
+      source: "existing",
+    });
+  }
+
+  // If only 1 candidate but no DB record yet, create it
+  if (candidates.length === 1 && !candidates[0].id) {
+    const c = candidates[0];
+    const patient = await prisma.patient.create({
+      data: {
         name: c.name,
-        governmentId: c.governmentId,
-        emailCount: c.emailIds.length,
-        lastEmailDate: c.lastDate?.toISOString(),
-        source: "extracted" as const,
-      })),
-  ];
+        governmentId: c.governmentId || `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+        userId,
+      },
+    });
+    candidates[0].id = patient.id;
+  }
 
   return NextResponse.json({
-    needsDisambiguation: result.length > 1,
-    candidates: result,
+    needsDisambiguation: candidates.length > 1,
+    candidates,
   });
 }

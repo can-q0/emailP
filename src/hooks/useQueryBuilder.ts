@@ -1,143 +1,168 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { QueryTemplate, QuerySegment, QueryValues } from "@/types";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { QueryTemplate, QueryValues } from "@/types";
 
-type Phase = "typing" | "waiting_input" | "completed";
+type Phase = "hidden" | "typing" | "waiting_input" | "completed";
 
 interface SegmentState {
-  segment: QuerySegment;
   phase: Phase;
   typedText: string;
 }
 
 export function useQueryBuilder(template: QueryTemplate) {
   const [segmentStates, setSegmentStates] = useState<SegmentState[]>(() =>
-    template.segments.map((segment) => ({
-      segment,
-      phase: "typing",
+    template.segments.map(() => ({
+      phase: "hidden" as Phase,
       typedText: "",
     }))
   );
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [values, setValues] = useState<QueryValues>({});
-  const [isAnimating, setIsAnimating] = useState(true);
   const [isAllComplete, setIsAllComplete] = useState(false);
-  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const getCurrentSegment = useCallback(() => {
-    return segmentStates[activeSegmentIndex];
-  }, [segmentStates, activeSegmentIndex]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeRef = useRef(activeIndex);
+  activeRef.current = activeIndex;
 
-  const advanceToNextSegment = useCallback(() => {
-    const nextIndex = activeSegmentIndex + 1;
-    if (nextIndex >= segmentStates.length) {
-      setIsAnimating(false);
-      setIsAllComplete(true);
-      return;
-    }
-    setActiveSegmentIndex(nextIndex);
-  }, [activeSegmentIndex, segmentStates.length]);
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
-  const startTypingSegment = useCallback(
+  const processSegment = useCallback(
     (index: number) => {
-      const state = segmentStates[index];
-      if (!state) return;
+      if (index >= template.segments.length) {
+        setIsAllComplete(true);
+        return;
+      }
 
-      if (state.segment.type === "text") {
-        const text = state.segment.value;
-        let charIndex = 0;
+      const segment = template.segments[index];
+      setActiveIndex(index);
 
-        typingTimerRef.current = setInterval(() => {
-          charIndex++;
+      if (segment.type === "text") {
+        const text = segment.value;
+        let charIdx = 0;
+
+        setSegmentStates((prev) => {
+          const next = [...prev];
+          next[index] = { phase: "typing", typedText: "" };
+          return next;
+        });
+
+        timerRef.current = setInterval(() => {
+          charIdx++;
+          const currentText = text.slice(0, charIdx);
+
           setSegmentStates((prev) => {
-            const updated = [...prev];
-            updated[index] = {
-              ...updated[index],
-              typedText: text.slice(0, charIndex),
-            };
-            return updated;
+            const next = [...prev];
+            next[index] = { phase: "typing", typedText: currentText };
+            return next;
           });
 
-          if (charIndex >= text.length) {
-            if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-            // Move to next segment after text finishes typing
-            const nextIdx = index + 1;
-            if (nextIdx >= segmentStates.length) {
-              setIsAnimating(false);
-              setIsAllComplete(true);
-            } else {
-              setActiveSegmentIndex(nextIdx);
-            }
+          if (charIdx >= text.length) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            timerRef.current = null;
+
+            setSegmentStates((prev) => {
+              const next = [...prev];
+              next[index] = { phase: "completed", typedText: text };
+              return next;
+            });
+
+            // Move to next segment
+            processSegment(index + 1);
           }
         }, 30);
       } else {
-        // For blanks and choices, mark as waiting for input
+        // blank or choice — wait for user input
         setSegmentStates((prev) => {
-          const updated = [...prev];
-          updated[index] = { ...updated[index], phase: "waiting_input" };
-          return updated;
+          const next = [...prev];
+          next[index] = { phase: "waiting_input", typedText: "" };
+          return next;
         });
-        setIsAnimating(false);
       }
     },
-    [segmentStates]
+    [template.segments]
+  );
+
+  const start = useCallback(
+    (prefill?: Partial<QueryValues>) => {
+      // Apply prefills
+      if (prefill) {
+        const defined = Object.fromEntries(
+          Object.entries(prefill).filter(([, v]) => v !== undefined)
+        ) as QueryValues;
+        setValues((prev) => ({ ...prev, ...defined }));
+      }
+
+      // Find the first segment that isn't prefilled
+      let startIdx = 0;
+      const newStates = template.segments.map(() => ({
+        phase: "hidden" as Phase,
+        typedText: "",
+      }));
+
+      if (prefill) {
+        for (let i = 0; i < template.segments.length; i++) {
+          const seg = template.segments[i];
+          if (seg.type === "text") {
+            newStates[i] = { phase: "completed", typedText: seg.value };
+            startIdx = i + 1;
+          } else if (
+            (seg.type === "blank" || seg.type === "choice") &&
+            prefill[seg.id]
+          ) {
+            newStates[i] = {
+              phase: "completed",
+              typedText: prefill[seg.id]!,
+            };
+            startIdx = i + 1;
+          } else {
+            break;
+          }
+        }
+      }
+
+      setSegmentStates(newStates);
+      processSegment(startIdx);
+    },
+    [template.segments, processSegment]
   );
 
   const fillValue = useCallback(
     (id: string, value: string) => {
       setValues((prev) => ({ ...prev, [id]: value }));
 
-      // Mark current segment as completed
+      const currentIdx = activeRef.current;
       setSegmentStates((prev) => {
-        const updated = [...prev];
-        const idx = updated.findIndex(
-          (s) =>
-            (s.segment.type === "blank" || s.segment.type === "choice") &&
-            s.segment.id === id
-        );
-        if (idx !== -1) {
-          updated[idx] = { ...updated[idx], phase: "completed", typedText: value };
-        }
-        return updated;
+        const next = [...prev];
+        next[currentIdx] = { phase: "completed", typedText: value };
+        return next;
       });
 
-      // Resume animation with next segment
-      setIsAnimating(true);
-      advanceToNextSegment();
+      // Continue to next segment
+      processSegment(currentIdx + 1);
     },
-    [advanceToNextSegment]
+    [processSegment]
   );
 
-  // Start typing when activeSegmentIndex changes and we're animating
-  const startAnimation = useCallback(() => {
-    startTypingSegment(activeSegmentIndex);
-  }, [activeSegmentIndex, startTypingSegment]);
-
-  const reset = useCallback(() => {
-    if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-    setSegmentStates(
-      template.segments.map((segment) => ({
-        segment,
-        phase: "typing",
-        typedText: "",
-      }))
-    );
-    setActiveSegmentIndex(0);
-    setValues({});
-    setIsAnimating(true);
-    setIsAllComplete(false);
-  }, [template]);
+  const isAnimating =
+    !isAllComplete &&
+    activeIndex >= 0 &&
+    activeIndex < template.segments.length &&
+    template.segments[activeIndex]?.type === "text";
 
   return {
+    segments: template.segments,
     segmentStates,
-    activeSegmentIndex,
+    activeIndex,
     values,
     isAnimating,
     isAllComplete,
-    getCurrentSegment,
     fillValue,
-    startAnimation,
-    reset,
+    start,
   };
 }
