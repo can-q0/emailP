@@ -32,6 +32,9 @@ function QueryPageContent() {
     errorMessage: string;
   } | null>(null);
 
+  // Counter to force QueryBuilder remount when returning to query step
+  const [queryKey, setQueryKey] = useState(0);
+
   // Store query values for use after disambiguation
   const queryValuesRef = useRef<QueryValues>({});
 
@@ -96,13 +99,17 @@ function QueryPageContent() {
           setTimeout(() => setStep("query"), 2000);
           return;
         }
-        await generateReport(
-          patId,
-          emailIds,
-          values.patientName || patientName,
-          values.reportType,
-          values.format
-        );
+        if (values.reportType === "plain PDF") {
+          await generatePlainPdf(patId, emailIds, values.patientName || patientName);
+        } else {
+          await generateReport(
+            patId,
+            emailIds,
+            values.patientName || patientName,
+            values.reportType,
+            values.format
+          );
+        }
       } catch (error) {
         console.error("Query error:", error);
         setProgress("An error occurred. Please try again.");
@@ -142,16 +149,70 @@ function QueryPageContent() {
       const syncData = await syncRes.json();
       const emailIds = syncData.emails?.map((e: { id: string }) => e.id) || [];
 
-      await generateReport(
-        patientId,
-        emailIds,
-        candidate.name,
-        queryValuesRef.current.reportType,
-        queryValuesRef.current.format
-      );
+      if (queryValuesRef.current.reportType === "plain PDF") {
+        await generatePlainPdf(patientId, emailIds, candidate.name);
+      } else {
+        await generateReport(
+          patientId,
+          emailIds,
+          candidate.name,
+          queryValuesRef.current.reportType,
+          queryValuesRef.current.format
+        );
+      }
     },
     [router]
   );
+
+  const generatePlainPdf = async (
+    patientId: string,
+    emailIds: string[],
+    name: string
+  ) => {
+    setStep("generating");
+    setProgress("Fetching & merging PDF attachments...");
+
+    try {
+      const res = await fetch("/api/reports/plain-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patientId,
+          emailIds,
+          title: `Plain PDF - ${name}`,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.reportId) {
+        const pollInterval = setInterval(async () => {
+          const statusRes = await fetch(`/api/reports?id=${data.reportId}`);
+          const report = await statusRes.json();
+
+          if (report.status === "completed") {
+            clearInterval(pollInterval);
+            router.push(`/report/${data.reportId}`);
+          } else if (report.status === "failed" || report.status === "no_results") {
+            clearInterval(pollInterval);
+            if (report.status === "no_results") {
+              setStep("no_results");
+            } else {
+              setProgress("Failed to merge PDFs. Please try again.");
+              setTimeout(() => setStep("query"), 2000);
+            }
+          }
+        }, 1500);
+      } else {
+        setProgress("Failed to create report.");
+        setTimeout(() => setStep("query"), 2000);
+      }
+    } catch (error) {
+      console.error("Plain PDF error:", error);
+      setProgress("An error occurred. Please try again.");
+      setTimeout(() => setStep("query"), 2000);
+    }
+  };
 
   const generateReport = async (
     patientId: string,
@@ -227,6 +288,7 @@ function QueryPageContent() {
     setFailedReport(null);
     setStep("query");
     setProgress("");
+    setQueryKey((k) => k + 1);
   };
 
   if (status === "loading" || !session) {
@@ -251,6 +313,7 @@ function QueryPageContent() {
               </p>
             </div>
             <QueryBuilder
+              key={queryKey}
               template={defaultQueryTemplate}
               initialValues={patientName ? { patientName } : undefined}
               onSubmit={handleQuerySubmit}

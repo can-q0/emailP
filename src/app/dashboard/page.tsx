@@ -38,6 +38,7 @@ export default function DashboardPage() {
     errorMessage: string;
   } | null>(null);
 
+  const [queryKey, setQueryKey] = useState(0);
   const queryValuesRef = useRef<QueryValues>({});
 
   useEffect(() => {
@@ -166,7 +167,7 @@ export default function DashboardPage() {
     name: string
   ) => {
     setStep("generating");
-    setProgress("Merging emails into PDF...");
+    setProgress("Fetching & merging PDF attachments...");
 
     try {
       const res = await fetch("/api/reports/plain-pdf", {
@@ -182,7 +183,24 @@ export default function DashboardPage() {
       const data = await res.json();
 
       if (data.reportId) {
-        router.push(`/report/${data.reportId}`);
+        // Poll for completion
+        const pollInterval = setInterval(async () => {
+          const statusRes = await fetch(`/api/reports?id=${data.reportId}`);
+          const report = await statusRes.json();
+
+          if (report.status === "completed") {
+            clearInterval(pollInterval);
+            router.push(`/report/${data.reportId}`);
+          } else if (report.status === "failed" || report.status === "no_results") {
+            clearInterval(pollInterval);
+            if (report.status === "no_results") {
+              setStep("no_results");
+            } else {
+              setProgress("Failed to merge PDFs. Please try again.");
+              setTimeout(() => setStep("query"), 2000);
+            }
+          }
+        }, 1500);
       } else {
         setProgress("Failed to create report.");
         setTimeout(() => setStep("query"), 2000);
@@ -278,6 +296,7 @@ export default function DashboardPage() {
     setFailedReport(null);
     setStep("query");
     setProgress("");
+    setQueryKey((k) => k + 1);
   };
 
   if (status === "loading" || !session) {
@@ -307,6 +326,7 @@ export default function DashboardPage() {
             {/* Query Builder */}
             <div className="mb-12">
               <QueryBuilder
+                key={queryKey}
                 template={defaultQueryTemplate}
                 onSubmit={handleQuerySubmit}
               />

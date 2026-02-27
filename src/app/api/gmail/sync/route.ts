@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
 
     // Find existing emails that need PDF re-extraction (empty/short body)
     const needsReExtraction = existing.filter(
-      (e) => !e.body || e.body.trim().length < 100
+      (e) => !e.body || e.body.trim().length < 500
     );
     const reExtractIds = needsReExtraction.map((e) => e.gmailMessageId);
 
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
       const forwardedSubjectInfo = forwardedInfo?.subject ? parseLabSubject(forwardedInfo.subject) : null;
       const pdfMeta = pdfText ? parsePdfMetadata(pdfText) : null;
 
-      const bodyText = pdfText || text;
+      const bodyText = [pdfText, text].filter(Boolean).join("\n\n---\n\n") || "";
       const isLabReport = !!pdfText || !!subjectInfo || !!forwardedSubjectInfo || !!pdfMeta?.patientName;
 
       const resolvedName = subjectInfo?.patientName ?? forwardedSubjectInfo?.patientName ?? pdfMeta?.patientName ?? null;

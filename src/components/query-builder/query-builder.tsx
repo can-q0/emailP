@@ -45,6 +45,35 @@ export function QueryBuilder({
     }
   }, [start, initialValues]);
 
+  // Reset on unmount so re-mount triggers start again
+  useEffect(() => {
+    return () => {
+      hasStarted.current = false;
+    };
+  }, []);
+
+  // Auto-fill format when "plain PDF" is selected (no format needed)
+  const autoFilledRef = useRef(false);
+  useEffect(() => {
+    if (
+      values.reportType === "plain PDF" &&
+      !values.format &&
+      !autoFilledRef.current
+    ) {
+      const formatSegmentIndex = segments.findIndex(
+        (s) => s.type === "choice" && s.id === "format"
+      );
+      const formatState = segmentStates[formatSegmentIndex];
+      if (formatState?.phase === "waiting_input") {
+        autoFilledRef.current = true;
+        fillValue("format", "detailed");
+      }
+    }
+    if (values.reportType !== "plain PDF") {
+      autoFilledRef.current = false;
+    }
+  }, [values, segments, segmentStates, fillValue]);
+
   const handleSubmit = useCallback(() => {
     onSubmit(values);
   }, [values, onSubmit]);
