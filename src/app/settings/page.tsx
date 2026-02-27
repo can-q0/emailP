@@ -1,0 +1,269 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { GlassCard } from "@/components/ui/glass-card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Toggle } from "@/components/ui/toggle";
+import { Settings, Brain, Mail, User } from "lucide-react";
+
+interface UserSettings {
+  aiModel: string;
+  reportLanguage: string;
+  reportDetailLevel: string;
+  customSystemPrompt: string | null;
+  autoClassify: boolean;
+  displayName: string | null;
+  theme: string;
+}
+
+const MODEL_OPTIONS = [
+  { value: "gpt-5", label: "GPT-5" },
+  { value: "gpt-4o", label: "GPT-4o" },
+  { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+];
+
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "tr", label: "Turkish" },
+];
+
+const DETAIL_LEVEL_OPTIONS = [
+  { value: "summary", label: "Summary" },
+  { value: "detailed", label: "Detailed" },
+  { value: "graphical", label: "Graphical" },
+];
+
+const THEME_OPTIONS = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
+];
+
+export default function SettingsPage() {
+  const { status } = useSession();
+  const router = useRouter();
+  const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/auth/signin");
+      return;
+    }
+    if (status === "authenticated") {
+      fetch("/api/settings")
+        .then((r) => r.json())
+        .then(setSettings)
+        .catch(() => setError("Failed to load settings"));
+    }
+  }, [status, router]);
+
+  async function handleSave() {
+    if (!settings) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aiModel: settings.aiModel,
+          reportLanguage: settings.reportLanguage,
+          reportDetailLevel: settings.reportDetailLevel,
+          customSystemPrompt: settings.customSystemPrompt || null,
+          autoClassify: settings.autoClassify,
+          displayName: settings.displayName || null,
+          theme: settings.theme,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to save");
+      }
+
+      const updated = await res.json();
+      setSettings(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (status === "loading" || !settings) {
+    return (
+      <div className="max-w-2xl mx-auto px-6 py-10">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 w-48 bg-card-border/50 rounded-lg" />
+          <div className="h-64 bg-card-border/30 rounded-2xl" />
+          <div className="h-32 bg-card-border/30 rounded-2xl" />
+          <div className="h-40 bg-card-border/30 rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+      <div className="flex items-center gap-3">
+        <Settings className="w-6 h-6 text-primary" />
+        <h1 className="text-2xl font-semibold">Settings</h1>
+      </div>
+
+      {/* AI Preferences */}
+      <GlassCard className="p-6 space-y-5">
+        <div className="flex items-center gap-2 text-foreground">
+          <Brain className="w-5 h-5 text-primary" />
+          <h2 className="font-semibold">AI Preferences</h2>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              AI Model
+            </label>
+            <Select
+              options={MODEL_OPTIONS}
+              value={settings.aiModel}
+              onChange={(e) =>
+                setSettings({ ...settings, aiModel: e.target.value })
+              }
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Report Language
+            </label>
+            <Select
+              options={LANGUAGE_OPTIONS}
+              value={settings.reportLanguage}
+              onChange={(e) =>
+                setSettings({ ...settings, reportLanguage: e.target.value })
+              }
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Default Detail Level
+            </label>
+            <Select
+              options={DETAIL_LEVEL_OPTIONS}
+              value={settings.reportDetailLevel}
+              onChange={(e) =>
+                setSettings({ ...settings, reportDetailLevel: e.target.value })
+              }
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Custom System Prompt
+            </label>
+            <Textarea
+              placeholder="Optional: Add custom instructions for AI report generation..."
+              value={settings.customSystemPrompt || ""}
+              onChange={(e) =>
+                setSettings({ ...settings, customSystemPrompt: e.target.value })
+              }
+              rows={3}
+            />
+            <p className="text-xs text-text-muted mt-1">
+              This will be appended to the default system prompt when generating
+              reports.
+            </p>
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* Email Sync */}
+      <GlassCard className="p-6 space-y-5">
+        <div className="flex items-center gap-2 text-foreground">
+          <Mail className="w-5 h-5 text-primary" />
+          <h2 className="font-semibold">Email Sync</h2>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Auto-classify emails</p>
+            <p className="text-xs text-text-muted">
+              Automatically classify synced emails as lab reports using AI
+            </p>
+          </div>
+          <Toggle
+            checked={settings.autoClassify}
+            onChange={(checked) =>
+              setSettings({ ...settings, autoClassify: checked })
+            }
+          />
+        </div>
+      </GlassCard>
+
+      {/* Profile & Display */}
+      <GlassCard className="p-6 space-y-5">
+        <div className="flex items-center gap-2 text-foreground">
+          <User className="w-5 h-5 text-primary" />
+          <h2 className="font-semibold">Profile & Display</h2>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Display Name
+            </label>
+            <Input
+              placeholder="Your display name"
+              value={settings.displayName || ""}
+              onChange={(e) =>
+                setSettings({ ...settings, displayName: e.target.value })
+              }
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Theme
+            </label>
+            <Select
+              options={THEME_OPTIONS}
+              value={settings.theme}
+              onChange={(e) =>
+                setSettings({ ...settings, theme: e.target.value })
+              }
+            />
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* Save */}
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save Changes"}
+        </Button>
+        {saved && (
+          <span className="text-sm text-green-600 font-medium">
+            Settings saved!
+          </span>
+        )}
+        {error && (
+          <span className="text-sm text-severity-high font-medium">
+            {error}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}

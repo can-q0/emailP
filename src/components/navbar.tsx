@@ -2,11 +2,30 @@
 
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
-import { Mail, FileText, LogOut, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Mail, FileText, LogOut, Users, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function Navbar() {
   const { data: session } = useSession();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [dropdownOpen]);
 
   if (!session) return null;
 
@@ -39,24 +58,42 @@ export function Navbar() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {session.user?.image && (
-            <img
-              src={session.user.image}
-              alt=""
-              className="w-7 h-7 rounded-full"
-            />
-          )}
-          <span className="text-sm text-text-secondary">
-            {session.user?.name}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => signOut({ callbackUrl: "/" })}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-card-hover transition-colors cursor-pointer"
           >
-            <LogOut className="w-4 h-4" />
-          </Button>
+            {session.user?.image && (
+              <img
+                src={session.user.image}
+                alt=""
+                className="w-7 h-7 rounded-full"
+              />
+            )}
+            <span className="text-sm text-text-secondary">
+              {session.user?.name}
+            </span>
+          </button>
+
+          {dropdownOpen && (
+            <div className="absolute right-0 mt-1 w-48 rounded-xl border border-card-border bg-white shadow-lg py-1 z-50">
+              <Link
+                href="/settings"
+                onClick={() => setDropdownOpen(false)}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-card-hover transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                Settings
+              </Link>
+              <button
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="flex items-center gap-2 w-full px-4 py-2 text-sm text-foreground hover:bg-card-hover transition-colors cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </nav>

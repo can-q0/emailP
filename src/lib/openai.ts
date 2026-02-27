@@ -10,7 +10,8 @@ const limit = pLimit(5);
 
 export async function classifyEmail(
   emailBody: string,
-  subject: string
+  subject: string,
+  model: string = "gpt-5"
 ): Promise<{
   isLabReport: boolean;
   patientName?: string;
@@ -20,7 +21,7 @@ export async function classifyEmail(
   return withRetry(
     async () => {
       const response = await openai.chat.completions.create({
-        model: "gpt-5",
+        model,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -65,7 +66,8 @@ Return JSON with:
 const CLASSIFY_BATCH_SIZE = 10;
 
 async function classifyEmailsChunk(
-  emails: Array<{ id: string; body: string; subject: string }>
+  emails: Array<{ id: string; body: string; subject: string }>,
+  model: string = "gpt-5"
 ): Promise<
   Map<string, { isLabReport: boolean; patientName?: string; governmentId?: string }>
 > {
@@ -77,7 +79,7 @@ async function classifyEmailsChunk(
     .join("\n\n");
 
   const response = await openai.chat.completions.create({
-    model: "gpt-5",
+    model,
     temperature: 0.0,
     response_format: { type: "json_object" },
     messages: [
@@ -119,7 +121,8 @@ Return JSON with a "results" object keyed by email id. Each value has:
 }
 
 export async function classifyEmailsBatch(
-  emails: Array<{ id: string; body: string; subject: string }>
+  emails: Array<{ id: string; body: string; subject: string }>,
+  model: string = "gpt-5"
 ): Promise<
   Map<string, { isLabReport: boolean; patientName?: string; governmentId?: string }>
 > {
@@ -135,7 +138,7 @@ export async function classifyEmailsBatch(
   }
 
   const promises = chunks.map((chunk) =>
-    limit(() => withRetry(() => classifyEmailsChunk(chunk), { attempts: 3, label: "classifyEmailsChunk" }))
+    limit(() => withRetry(() => classifyEmailsChunk(chunk, model), { attempts: 3, label: "classifyEmailsChunk" }))
   );
 
   const settled = await Promise.allSettled(promises);
@@ -153,7 +156,8 @@ export async function classifyEmailsBatch(
 }
 
 export async function extractBloodMetrics(
-  emailBody: string
+  emailBody: string,
+  model: string = "gpt-5"
 ): Promise<
   Array<{
     metricName: string;
@@ -167,7 +171,7 @@ export async function extractBloodMetrics(
   return withRetry(
     async () => {
       const response = await openai.chat.completions.create({
-        model: "gpt-5",
+        model,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -256,7 +260,8 @@ Only include metrics that have clear numeric values. Do not guess or infer missi
 }
 
 export async function extractBloodMetricsBatch(
-  emails: Array<{ id: string; body: string }>
+  emails: Array<{ id: string; body: string }>,
+  model: string = "gpt-5"
 ): Promise<
   Map<
     string,
@@ -284,7 +289,7 @@ export async function extractBloodMetricsBatch(
 
   const promises = emails.map((email) =>
     limit(async () => {
-      const metrics = await extractBloodMetrics(email.body);
+      const metrics = await extractBloodMetrics(email.body, model);
       return { id: email.id, metrics };
     })
   );
@@ -301,7 +306,12 @@ export async function extractBloodMetricsBatch(
   return results;
 }
 
-function buildSummaryPrompt(reportType: string, format: string): string {
+function buildSummaryPrompt(
+  reportType: string,
+  format: string,
+  language: string = "en",
+  customSystemPrompt?: string | null
+): string {
   // Base analysis instructions shared across all modes
   const crossReferenceInstructions = `Cross-reference related metrics to provide deeper insights:
   • Iron + Ferritin + Hemoglobin + MCV → iron-deficiency anemia assessment
@@ -366,7 +376,7 @@ ${reportTypeInstructions}
 ${formatInstructions}
 
 General guidelines:
-- Be professional, factual, and write in English.
+- Be professional, factual, and write in ${language === "tr" ? "Turkish" : "English"}.
 - Do NOT provide diagnoses. Frame findings as observations for physician review.
 
 Attention points guidelines:
@@ -384,7 +394,7 @@ Return JSON with:
    - title: string (short, descriptive)
    - description: string (2-3 sentences explaining the finding with specific values and dates)
    - relatedMetrics: string[] (all metric names involved in this finding)
-   - recommendations: string[] (1-3 specific, actionable recommendations)`;
+   - recommendations: string[] (1-3 specific, actionable recommendations)${customSystemPrompt ? `\n\nAdditional instructions from the user:\n${customSystemPrompt}` : ""}`;
 }
 
 export async function generateSummaryAndAttentionPoints(
@@ -398,7 +408,12 @@ export async function generateSummaryAndAttentionPoints(
     measuredAt: string;
   }>,
   reportType: string = "detailed report",
-  format: string = "detailed"
+  format: string = "detailed",
+  options?: {
+    model?: string;
+    language?: string;
+    customSystemPrompt?: string | null;
+  }
 ): Promise<{
   summary: string;
   attentionPoints: Array<{
@@ -411,10 +426,15 @@ export async function generateSummaryAndAttentionPoints(
 }> {
   return withRetry(
     async () => {
-      const systemPrompt = buildSummaryPrompt(reportType, format);
+      const systemPrompt = buildSummaryPrompt(
+        reportType,
+        format,
+        options?.language,
+        options?.customSystemPrompt
+      );
 
       const response = await openai.chat.completions.create({
-        model: "gpt-5",
+        model: options?.model || "gpt-5",
         response_format: { type: "json_object" },
         messages: [
           {

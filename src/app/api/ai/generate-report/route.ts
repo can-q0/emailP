@@ -8,6 +8,7 @@ import {
 import { normalizeMetricName, getMetricReference } from "@/lib/blood-metrics";
 import { parseBody, generateReportSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
+import { getOrCreateSettings } from "@/lib/settings";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -42,6 +43,10 @@ export async function POST(req: NextRequest) {
     orderBy: { date: "asc" },
   });
 
+  const settings = await getOrCreateSettings(userId);
+
+  const effectiveFormat = format || settings.reportDetailLevel || "detailed";
+
   const report = await prisma.report.create({
     data: {
       title: title || `Report for ${patient.name}`,
@@ -50,7 +55,7 @@ export async function POST(req: NextRequest) {
       status: "processing",
       step: "extracting_metrics",
       reportType: reportType || "detailed report",
-      format: format || "detailed",
+      format: effectiveFormat,
       reportEmails: {
         create: emails.map((e) => ({ emailId: e.id })),
       },
@@ -63,7 +68,12 @@ export async function POST(req: NextRequest) {
     emails,
     userId,
     reportType || "detailed report",
-    format || "detailed"
+    effectiveFormat,
+    {
+      model: settings.aiModel,
+      language: settings.reportLanguage,
+      customSystemPrompt: settings.customSystemPrompt,
+    }
   ).catch(console.error);
 
   return NextResponse.json({ reportId: report.id, status: "processing" });
@@ -80,7 +90,12 @@ async function processReport(
   }>,
   userId: string,
   reportType: string,
-  format: string
+  format: string,
+  aiOptions?: {
+    model?: string;
+    language?: string;
+    customSystemPrompt?: string | null;
+  }
 ) {
   try {
     // Classification is done at sync time (subject parsing + PDF extraction).
@@ -107,7 +122,8 @@ async function processReport(
     });
 
     const metricsMap = await extractBloodMetricsBatch(
-      labEmails.filter((e) => e.body).map((e) => ({ id: e.id, body: e.body! }))
+      labEmails.filter((e) => e.body).map((e) => ({ id: e.id, body: e.body! })),
+      aiOptions?.model
     );
 
     const allMetrics: Array<{
@@ -178,7 +194,8 @@ async function processReport(
           measuredAt: m.measuredAt.toISOString(),
         })),
         reportType,
-        format
+        format,
+        aiOptions
       );
 
     await prisma.report.update({

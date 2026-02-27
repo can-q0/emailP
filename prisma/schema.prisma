@@ -18,6 +18,7 @@ model User {
   patients      Patient[]
   reports       Report[]
   emailSyncLogs EmailSyncLog[]
+  settings      UserSettings?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -147,6 +148,21 @@ model ReportEmail {
   email    Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
 
   @@unique([reportId, emailId])
+}
+
+model UserSettings {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiModel            String   @default("gpt-5")
+  reportLanguage     String   @default("en")
+  reportDetailLevel  String   @default("detailed")
+  customSystemPrompt String?
+  autoClassify       Boolean  @default(true)
+  displayName        String?
+  theme              String   @default("light")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 model EmailSyncLog {

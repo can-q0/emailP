@@ -50,6 +50,16 @@ export const patientMergeSchema = z.object({
   targetPatientId: z.string().min(1),
 });
 
+export const userSettingsUpdateSchema = z.object({
+  aiModel: z.enum(["gpt-5", "gpt-4o", "gpt-4o-mini"]).optional(),
+  reportLanguage: z.enum(["en", "tr"]).optional(),
+  reportDetailLevel: z.enum(["summary", "detailed", "graphical"]).optional(),
+  customSystemPrompt: z.string().max(2000).nullable().optional(),
+  autoClassify: z.boolean().optional(),
+  displayName: z.string().max(100).nullable().optional(),
+  theme: z.enum(["light", "dark", "system"]).optional(),
+});
+
 // --- Helpers ---
 
 export async function parseBody<T extends z.ZodType>(
