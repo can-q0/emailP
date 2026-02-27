@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma";
 import { parseBody, gmailSyncSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { extractPdfText } from "@/lib/pdf";
+import { pLimit } from "@/lib/concurrency";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -105,11 +106,12 @@ export async function POST(req: NextRequest) {
       patientId = patient.id;
     }
 
-    // Process all fetched messages — extract PDF text and parse subject
+    // Process all fetched messages — extract PDF text and parse subject (parallel)
     const emails = [];
     const reExtractIdSet = new Set(reExtractIds);
+    const processLimit = pLimit(5);
 
-    for (const message of fullMessages) {
+    const processMessage = async (message: (typeof fullMessages)[number]) => {
       const meta = extractMessageMeta(message);
       const { text, html } = extractBody(message);
 
@@ -142,7 +144,6 @@ export async function POST(req: NextRequest) {
       const bodyText = pdfText || text;
       const isLabReport = !!pdfText || !!subjectInfo || !!forwardedSubjectInfo || !!pdfMeta?.patientName;
 
-      // Priority cascade: subject > forwarded subject > PDF
       const resolvedName = subjectInfo?.patientName ?? forwardedSubjectInfo?.patientName ?? pdfMeta?.patientName ?? null;
       const resolvedGender = subjectInfo?.gender ?? forwardedSubjectInfo?.gender ?? pdfMeta?.gender ?? null;
       const resolvedBirthYear = subjectInfo?.birthYear
@@ -150,7 +151,6 @@ export async function POST(req: NextRequest) {
         ?? (pdfMeta?.birthDate ? pdfMeta.birthDate.getFullYear() : null);
       const resolvedGovernmentId = pdfMeta?.governmentId ?? null;
 
-      // Date cascade: subject date > forwarded original date > forwarded subject date > PDF date > Gmail header
       const emailDate = subjectInfo?.date
         ?? forwardedInfo?.date
         ?? forwardedSubjectInfo?.date
@@ -158,7 +158,6 @@ export async function POST(req: NextRequest) {
         ?? meta.date
         ?? null;
 
-      // Track which source provided metadata (for debugging)
       const metadataSource = subjectInfo ? "subject"
         : forwardedSubjectInfo ? "forwarded_subject"
         : pdfMeta?.patientName ? "pdf"
@@ -176,7 +175,22 @@ export async function POST(req: NextRequest) {
           })
         : null;
 
-      // Is this a re-extraction of an existing email?
+      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate };
+    };
+
+    // Process all messages in parallel (concurrency=5)
+    const processed = await Promise.allSettled(
+      fullMessages.map((msg) => processLimit(() => processMessage(msg)))
+    );
+
+    // Batch DB writes
+    for (const result of processed) {
+      if (result.status !== "fulfilled") {
+        console.error("Message processing failed:", result.reason);
+        continue;
+      }
+      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate } = result.value;
+
       if (reExtractIdSet.has(message.id!)) {
         const existingEmail = existingMap.get(message.id!)!;
         await prisma.email.update({
@@ -193,7 +207,6 @@ export async function POST(req: NextRequest) {
         const updated = await prisma.email.findUnique({ where: { id: existingEmail.id } });
         if (updated) emails.push(updated);
       } else {
-        // New email — create
         const email = await prisma.email.create({
           data: {
             ...meta,

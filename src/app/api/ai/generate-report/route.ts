@@ -121,10 +121,40 @@ async function processReport(
       data: { step: "extracting_metrics" },
     });
 
-    const metricsMap = await extractBloodMetricsBatch(
-      labEmails.filter((e) => e.body).map((e) => ({ id: e.id, body: e.body! })),
-      aiOptions?.model
-    );
+    const reportRecord = await prisma.report.findUnique({
+      where: { id: reportId },
+      select: { patientId: true },
+    });
+
+    // Check which emails already have cached metrics from prior reports
+    const labEmailIds = labEmails.map((e) => e.id);
+    const priorReportEmails = await prisma.reportEmail.findMany({
+      where: {
+        emailId: { in: labEmailIds },
+        report: { status: "completed", id: { not: reportId } },
+      },
+      select: { emailId: true, reportId: true },
+    });
+
+    // Build a map: emailId -> reportId that has metrics for it
+    const cachedReportByEmail = new Map<string, string>();
+    for (const re of priorReportEmails) {
+      if (!cachedReportByEmail.has(re.emailId)) {
+        cachedReportByEmail.set(re.emailId, re.reportId);
+      }
+    }
+
+    const cachedEmailIds = new Set(cachedReportByEmail.keys());
+    const uncachedEmails = labEmails.filter((e) => !cachedEmailIds.has(e.id) && e.body);
+    const cachedEmails = labEmails.filter((e) => cachedEmailIds.has(e.id));
+
+    // Extract metrics only for emails not seen before
+    const metricsMap = uncachedEmails.length > 0
+      ? await extractBloodMetricsBatch(
+          uncachedEmails.map((e) => ({ id: e.id, body: e.body! })),
+          aiOptions?.model
+        )
+      : new Map<string, Array<{ metricName: string; value: number; unit: string; referenceMin?: number; referenceMax?: number; isAbnormal: boolean }>>();
 
     const allMetrics: Array<{
       metricName: string;
@@ -136,12 +166,55 @@ async function processReport(
       measuredAt: Date;
     }> = [];
 
-    const reportRecord = await prisma.report.findUnique({
-      where: { id: reportId },
-      select: { patientId: true },
-    });
+    const dbMetrics: Array<{
+      metricName: string;
+      value: number;
+      unit: string;
+      referenceMin: number | null;
+      referenceMax: number | null;
+      isAbnormal: boolean;
+      measuredAt: Date;
+      patientId: string;
+      reportId: string;
+    }> = [];
 
-    for (const email of labEmails) {
+    // Reuse cached metrics from prior reports
+    if (cachedEmails.length > 0) {
+      const cachedReportIds = [...new Set(cachedReportByEmail.values())];
+      const existingMetrics = await prisma.bloodMetric.findMany({
+        where: {
+          reportId: { in: cachedReportIds },
+          patientId: reportRecord!.patientId,
+        },
+      });
+
+      // Group by measuredAt to match back to emails
+      for (const m of existingMetrics) {
+        dbMetrics.push({
+          metricName: m.metricName,
+          value: m.value,
+          unit: m.unit,
+          referenceMin: m.referenceMin,
+          referenceMax: m.referenceMax,
+          isAbnormal: m.isAbnormal,
+          measuredAt: m.measuredAt,
+          patientId: reportRecord!.patientId,
+          reportId,
+        });
+        allMetrics.push({
+          metricName: m.metricName,
+          value: m.value,
+          unit: m.unit,
+          referenceMin: m.referenceMin ?? undefined,
+          referenceMax: m.referenceMax ?? undefined,
+          isAbnormal: m.isAbnormal,
+          measuredAt: m.measuredAt,
+        });
+      }
+    }
+
+    // Process newly extracted metrics
+    for (const email of uncachedEmails) {
       const metrics = metricsMap.get(email.id) || [];
       for (const metric of metrics) {
         const normalized = normalizeMetricName(metric.metricName);
@@ -159,14 +232,17 @@ async function processReport(
           reportId,
         };
 
-        await prisma.bloodMetric.create({ data: metricData });
-
+        dbMetrics.push(metricData);
         allMetrics.push({
           ...metricData,
           referenceMin: metricData.referenceMin ?? undefined,
           referenceMax: metricData.referenceMax ?? undefined,
         });
       }
+    }
+
+    if (dbMetrics.length > 0) {
+      await prisma.bloodMetric.createMany({ data: dbMetrics });
     }
 
     // Step 2: Generate summary AND attention points in ONE call
