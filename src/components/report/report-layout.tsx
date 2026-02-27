@@ -188,8 +188,33 @@ export function ReportLayout({ report, layout }: ReportLayoutProps) {
     return (
       <div className="flex gap-8">
         <SidebarNav sections={layout.sections} activeSection={activeSection} />
-        <div className={cn("flex-1 min-w-0", spacingClass[layout.spacing])}>
-          {renderSections(layout.sections)}
+        <div className="flex-1 min-w-0">
+          {/* Mobile horizontal tab bar */}
+          <nav className="lg:hidden sticky top-14 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 bg-background/90 backdrop-blur-md border-b border-card-border mb-6 overflow-x-auto">
+            <div className="flex gap-1 py-2">
+              {layout.sections.map(({ id, label }) => {
+                const Icon = sectionIcons[id] || FileText;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" })}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-all cursor-pointer",
+                      activeSection === id
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-text-muted hover:text-text-secondary"
+                    )}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+          <div className={cn(spacingClass[layout.spacing])}>
+            {renderSections(layout.sections)}
+          </div>
         </div>
       </div>
     );

@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
-import { Settings, Brain, Mail, User, ArrowLeft } from "lucide-react";
+import { Settings, Brain, Mail, User, ArrowLeft, Bell } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 
 interface UserSettings {
   aiModel: string;
@@ -17,6 +18,7 @@ interface UserSettings {
   reportDetailLevel: string;
   customSystemPrompt: string | null;
   autoClassify: boolean;
+  emailNotifications: boolean;
   displayName: string | null;
   theme: string;
 }
@@ -47,6 +49,7 @@ const THEME_OPTIONS = [
 export default function SettingsPage() {
   const { status } = useSession();
   const router = useRouter();
+  const { setTheme } = useTheme();
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -63,6 +66,7 @@ export default function SettingsPage() {
           if (!r.ok) throw new Error("Failed to load settings");
           const data = await r.json();
           setSettings(data);
+          if (data.theme) setTheme(data.theme as "light" | "dark" | "system");
         })
         .catch(() => setError("Failed to load settings"));
     }
@@ -84,6 +88,7 @@ export default function SettingsPage() {
           reportDetailLevel: settings.reportDetailLevel,
           customSystemPrompt: settings.customSystemPrompt || null,
           autoClassify: settings.autoClassify,
+          emailNotifications: settings.emailNotifications,
           displayName: settings.displayName || null,
           theme: settings.theme,
         }),
@@ -96,6 +101,7 @@ export default function SettingsPage() {
 
       const updated = await res.json();
       setSettings(updated);
+      setTheme(updated.theme as "light" | "dark" | "system");
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -107,7 +113,7 @@ export default function SettingsPage() {
 
   if (status === "loading" || (!settings && !error)) {
     return (
-      <div className="max-w-2xl mx-auto px-6 py-10">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
         <div className="animate-pulse space-y-6">
           <div className="h-8 w-48 bg-card-border/50 rounded-lg" />
           <div className="h-64 bg-card-border/30 rounded-2xl" />
@@ -120,7 +126,7 @@ export default function SettingsPage() {
 
   if (error && !settings) {
     return (
-      <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10 space-y-6">
         <div className="flex items-center gap-3">
           <Settings className="w-6 h-6 text-primary" />
           <h1 className="text-2xl font-semibold">Settings</h1>
@@ -135,7 +141,7 @@ export default function SettingsPage() {
   if (!settings) return null;
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10 space-y-6">
       <div className="flex items-center gap-3">
         <button
           onClick={() => router.back()}
@@ -232,6 +238,29 @@ export default function SettingsPage() {
             checked={settings.autoClassify}
             onChange={(checked) =>
               setSettings({ ...settings, autoClassify: checked })
+            }
+          />
+        </div>
+      </GlassCard>
+
+      {/* Notifications */}
+      <GlassCard className="p-6 space-y-5">
+        <div className="flex items-center gap-2 text-foreground">
+          <Bell className="w-5 h-5 text-primary" />
+          <h2 className="font-semibold">Notifications</h2>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Email notifications</p>
+            <p className="text-xs text-text-muted">
+              Receive an email when a report finishes generating
+            </p>
+          </div>
+          <Toggle
+            checked={settings.emailNotifications}
+            onChange={(checked) =>
+              setSettings({ ...settings, emailNotifications: checked })
             }
           />
         </div>

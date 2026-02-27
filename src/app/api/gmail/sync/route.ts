@@ -6,6 +6,7 @@ import {
   batchFetchMessages,
   extractMessageMeta,
   fetchAttachment,
+  GmailTokenError,
 } from "@/lib/gmail";
 import {
   extractBody,
@@ -245,6 +246,40 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Update patient birthYear/gender from extracted email metadata if currently null
+    if (patientId) {
+      const currentPatient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { birthYear: true, gender: true },
+      });
+      if (currentPatient && (!currentPatient.birthYear || !currentPatient.gender)) {
+        const allSyncedEmails = [...emails, ...unchangedEmails];
+        for (const e of allSyncedEmails) {
+          if (e.extractedData) {
+            try {
+              const parsed = typeof e.extractedData === "string"
+                ? JSON.parse(e.extractedData)
+                : e.extractedData;
+              const updates: { birthYear?: number; gender?: string } = {};
+              if (!currentPatient.birthYear && parsed.birthYear) {
+                updates.birthYear = parsed.birthYear;
+              }
+              if (!currentPatient.gender && parsed.gender) {
+                updates.gender = parsed.gender;
+              }
+              if (Object.keys(updates).length > 0) {
+                await prisma.patient.update({
+                  where: { id: patientId },
+                  data: updates,
+                });
+                break; // Only need the first valid data
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      }
+    }
+
     await prisma.emailSyncLog.update({
       where: { id: syncLog.id },
       data: {
@@ -268,6 +303,12 @@ export async function POST(req: NextRequest) {
         error: error instanceof Error ? error.message : "Unknown error",
       },
     });
+    if (error instanceof GmailTokenError) {
+      return NextResponse.json(
+        { error: "gmail_token_expired", message: error.message },
+        { status: 401 }
+      );
+    }
     return NextResponse.json(
       { error: "Failed to sync emails" },
       { status: 500 }

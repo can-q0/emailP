@@ -17,7 +17,10 @@ import {
   AlertTriangle,
   RotateCcw,
   SearchX,
+  Users,
 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { GmailReconnectBanner } from "@/components/gmail-reconnect-banner";
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -39,11 +42,30 @@ export default function DashboardPage() {
   } | null>(null);
 
   const [queryKey, setQueryKey] = useState(0);
+  const [tokenExpired, setTokenExpired] = useState(false);
   const queryValuesRef = useRef<QueryValues>({});
+
+  interface RecentReport {
+    id: string;
+    title: string;
+    status: string;
+    createdAt: string;
+    patient: { id: string; name: string };
+  }
+  const [recentReports, setRecentReports] = useState<RecentReport[]>([]);
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/auth/signin");
   }, [status, router]);
+
+  useEffect(() => {
+    if (status === "authenticated") {
+      fetch("/api/reports?limit=5")
+        .then((r) => r.json())
+        .then((data) => { if (Array.isArray(data)) setRecentReports(data); })
+        .catch(() => {});
+    }
+  }, [status]);
 
   const handleQuerySubmit = useCallback(
     async (values: QueryValues) => {
@@ -64,8 +86,13 @@ export default function DashboardPage() {
           }),
         });
 
-        if (!syncRes.ok) throw new Error("Failed to sync emails");
         const syncData = await syncRes.json();
+        if (syncData.error === "gmail_token_expired") {
+          setTokenExpired(true);
+          setStep("query");
+          return;
+        }
+        if (!syncRes.ok) throw new Error("Failed to sync emails");
 
         if (syncData.total === 0) {
           setStep("no_results");
@@ -310,12 +337,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <div className="max-w-4xl mx-auto px-6 py-16">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-16">
         {step === "query" && (
           <>
+            {tokenExpired && <GmailReconnectBanner />}
+
             {/* Welcome */}
             <div className="mb-12">
-              <h1 className="text-3xl font-bold mb-2">
+              <h1 className="text-2xl sm:text-3xl font-bold mb-2">
                 Welcome back, {session.user?.name?.split(" ")[0]}
               </h1>
               <p className="text-text-secondary">
@@ -333,7 +362,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Quick actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
               <GlassCard
                 className="p-6 cursor-pointer"
                 hover
@@ -351,20 +380,82 @@ export default function DashboardPage() {
                   </div>
                 </div>
               </GlassCard>
-              <GlassCard className="p-6 cursor-pointer" hover>
+              <GlassCard
+                className="p-6 cursor-pointer"
+                hover
+                onClick={() => router.push("/batch")}
+              >
                 <div className="flex items-start gap-4">
                   <div className="p-2.5 rounded-xl bg-severity-medium/10">
-                    <Clock className="w-5 h-5 text-severity-medium" />
+                    <Users className="w-5 h-5 text-severity-medium" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold mb-1">Batch Reports</h3>
+                    <p className="text-sm text-text-secondary">
+                      Generate reports for multiple patients at once.
+                    </p>
+                  </div>
+                </div>
+              </GlassCard>
+              <GlassCard
+                className="p-6 cursor-pointer"
+                hover
+                onClick={() => router.push("/report")}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="p-2.5 rounded-xl bg-severity-low/10">
+                    <Clock className="w-5 h-5 text-severity-low" />
                   </div>
                   <div>
                     <h3 className="font-semibold mb-1">Recent Activity</h3>
                     <p className="text-sm text-text-secondary">
-                      Your recent email syncs and report generation.
+                      {recentReports.length > 0
+                        ? `${recentReports.length} recent report${recentReports.length !== 1 ? "s" : ""}`
+                        : "No reports yet"}
                     </p>
                   </div>
                 </div>
               </GlassCard>
             </div>
+
+            {/* Recent Reports */}
+            {recentReports.length > 0 && (
+              <GlassCard className="p-6">
+                <h3 className="font-semibold mb-4">Recent Reports</h3>
+                <div className="space-y-3">
+                  {recentReports.map((r) => (
+                    <div
+                      key={r.id}
+                      onClick={() => router.push(`/report/${r.id}`)}
+                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-secondary/30 transition-colors cursor-pointer"
+                    >
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                          r.status === "completed"
+                            ? "bg-severity-low"
+                            : r.status === "processing"
+                            ? "bg-severity-medium"
+                            : r.status === "failed"
+                            ? "bg-severity-high"
+                            : "bg-text-muted"
+                        }`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {r.title}
+                        </p>
+                        <p className="text-xs text-text-muted">
+                          {r.patient.name}
+                        </p>
+                      </div>
+                      <span className="text-xs text-text-muted flex-shrink-0">
+                        {formatDistanceToNow(new Date(r.createdAt), { addSuffix: true })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            )}
           </>
         )}
 

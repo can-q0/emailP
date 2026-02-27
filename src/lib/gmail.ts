@@ -1,6 +1,13 @@
 import { google, gmail_v1 } from "googleapis";
 import { prisma } from "@/lib/prisma";
 
+export class GmailTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GmailTokenError";
+  }
+}
+
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
@@ -13,7 +20,7 @@ export async function getGmailClient(userId: string): Promise<gmail_v1.Gmail> {
   });
 
   if (!account?.access_token) {
-    throw new Error("No Google account linked");
+    throw new GmailTokenError("No Google account linked. Please reconnect your Google account.");
   }
 
   oauth2Client.setCredentials({
@@ -43,8 +50,8 @@ export async function getGmailClient(userId: string): Promise<gmail_v1.Gmail> {
         where: { id: account.id },
         data: { access_token: null, expires_at: null },
       });
-      throw new Error(
-        `Gmail token refresh failed — please re-link your Google account. ${error instanceof Error ? error.message : ""}`
+      throw new GmailTokenError(
+        `Gmail token refresh failed — please reconnect your Google account.`
       );
     }
   }

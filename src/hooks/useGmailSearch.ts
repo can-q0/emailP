@@ -8,11 +8,13 @@ export function useGmailSearch() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [emails, setEmails] = useState<EmailData[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isTokenExpired, setIsTokenExpired] = useState(false);
 
   const searchAndSync = useCallback(
     async (patientName: string, dateFrom?: string, dateTo?: string) => {
       setIsSearching(true);
       setError(null);
+      setIsTokenExpired(false);
 
       try {
         // Build Gmail query
@@ -28,9 +30,17 @@ export function useGmailSearch() {
           body: JSON.stringify({ query, patientName }),
         });
 
+        const syncData = await syncRes.json();
+
+        if (syncData.error === "gmail_token_expired") {
+          setIsTokenExpired(true);
+          setIsSearching(false);
+          setIsSyncing(false);
+          return null;
+        }
+
         if (!syncRes.ok) throw new Error("Failed to sync emails");
 
-        const syncData = await syncRes.json();
         setEmails(syncData.emails || []);
         setIsSyncing(false);
         setIsSearching(false);
@@ -51,6 +61,7 @@ export function useGmailSearch() {
     isSyncing,
     emails,
     error,
+    isTokenExpired,
     searchAndSync,
   };
 }

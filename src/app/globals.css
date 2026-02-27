@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+:root {
+  --background: #FAF7F2;
+  --foreground: #2D2016;
+  --card: #FFFFFF;
+  --card-border: #E8DFD3;
+  --card-hover: #FDF9F4;
+  --text-secondary: #6B5B4D;
+  --text-muted: #9C8B7A;
+  --text-faint: #C4B5A4;
+}
+
+.dark {
+  --background: #1A1410;
+  --foreground: #E8DFD3;
+  --card: #261E17;
+  --card-border: #3D3228;
+  --card-hover: #302720;
+  --text-secondary: #A89888;
+  --text-muted: #7A6E62;
+  --text-faint: #534840;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -7,20 +29,15 @@
   --font-mono: var(--font-jetbrains);
   --color-primary: #D97757;
   --color-primary-hover: #C4623F;
-  --color-card: #FFFFFF;
-  --color-card-border: #E8DFD3;
-  --color-card-hover: #FDF9F4;
+  --color-card: var(--card);
+  --color-card-border: var(--card-border);
+  --color-card-hover: var(--card-hover);
   --color-severity-high: #C93B3B;
   --color-severity-medium: #C47D1A;
   --color-severity-low: #3A8F5C;
-  --color-text-secondary: #6B5B4D;
-  --color-text-muted: #9C8B7A;
-  --color-text-faint: #C4B5A4;
-}
-
-:root {
-  --background: #FAF7F2;
-  --foreground: #2D2016;
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
 }
 
 body {
@@ -36,10 +53,19 @@ body {
 ::-webkit-scrollbar-track {
   background: rgba(45, 32, 22, 0.02);
 }
+.dark ::-webkit-scrollbar-track {
+  background: rgba(232, 223, 211, 0.02);
+}
 ::-webkit-scrollbar-thumb {
   background: rgba(45, 32, 22, 0.15);
   border-radius: 3px;
 }
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(232, 223, 211, 0.15);
+}
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(45, 32, 22, 0.25);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 223, 211, 0.25);
 }

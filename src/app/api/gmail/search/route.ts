@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getGmailClient, searchGmailMessages } from "@/lib/gmail";
+import { getGmailClient, searchGmailMessages, GmailTokenError } from "@/lib/gmail";
 import { parseSearchParams, gmailSearchSchema } from "@/lib/validations";
 
 export async function GET(req: NextRequest) {
@@ -26,6 +26,12 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     console.error("Gmail search error:", error);
+    if (error instanceof GmailTokenError) {
+      return NextResponse.json(
+        { error: "gmail_token_expired", message: error.message },
+        { status: 401 }
+      );
+    }
     return NextResponse.json(
       { error: "Failed to search Gmail" },
       { status: 500 }

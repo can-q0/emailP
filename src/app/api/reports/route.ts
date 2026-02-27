@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { parseSearchParams, reportIdSchema } from "@/lib/validations";
+import { deletePdf } from "@/lib/pdf-storage";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -38,16 +39,26 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const take = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10) || 50), 100) : undefined;
+
   const reports = await prisma.report.findMany({
     where: { userId: session.user.id },
     include: {
       patient: { select: { id: true, name: true } },
       _count: { select: { bloodMetrics: true, reportEmails: true } },
+      bloodMetrics: { select: { metricName: true }, distinct: ["metricName"] },
     },
     orderBy: { createdAt: "desc" },
+    ...(take ? { take } : {}),
   });
 
-  return NextResponse.json(reports);
+  const result = reports.map(({ bloodMetrics, ...report }) => ({
+    ...report,
+    metricNames: bloodMetrics.map((m) => m.metricName),
+  }));
+
+  return NextResponse.json(result);
 }
 
 export async function DELETE(req: NextRequest) {
@@ -66,6 +77,11 @@ export async function DELETE(req: NextRequest) {
 
   if (!report) {
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
+  }
+
+  // Delete PDF from disk if it exists
+  if (report.pdfPath) {
+    await deletePdf(report.pdfPath);
   }
 
   // Delete blood metrics tied to this report (no cascade on that relation)

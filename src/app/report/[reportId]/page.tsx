@@ -17,6 +17,7 @@ import {
   CheckCircle,
   Trash2,
   Download,
+  FileSpreadsheet,
 } from "lucide-react";
 import { format as formatDate } from "date-fns";
 
@@ -109,26 +110,27 @@ export default function ReportPage() {
 
   if (!report) return null;
 
+  const isPlainPdf = report.reportType === "plain PDF";
   const layout = getLayoutConfig(report.reportType, report.format);
 
   return (
     <div className="min-h-screen">
       <Navbar />
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-8">
           <Button variant="ghost" size="sm" onClick={() => router.back()}>
             <ArrowLeft className="w-4 h-4 mr-1" />
             Back
           </Button>
           <div className="flex-1 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary/10">
+            <div className="p-2.5 rounded-xl bg-primary/10 shrink-0">
               <User className="w-5 h-5 text-primary" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold">{report.patient.name}</h1>
-              <div className="flex items-center gap-2 text-sm text-text-muted mt-0.5">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold truncate">{report.patient.name}</h1>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-text-muted mt-0.5">
                 {report.patient.governmentId && (
                   <span>TC: {report.patient.governmentId}</span>
                 )}
@@ -137,15 +139,43 @@ export default function ReportPage() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => window.open(`/api/reports/pdf?id=${reportId}`, "_blank")}
-            >
-              <Download className="w-4 h-4 mr-1" />
-              PDF
-            </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isPlainPdf ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.open(`/api/reports/plain-pdf?id=${reportId}`, "_blank")}
+              >
+                <Download className="w-4 h-4 mr-1" />
+                PDF
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.open(`/api/reports/pdf?id=${reportId}`, "_blank")}
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  PDF
+                </Button>
+                {report.bloodMetrics.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const a = document.createElement("a");
+                      a.href = `/api/reports/excel?id=${reportId}`;
+                      a.download = "";
+                      a.click();
+                    }}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 mr-1" />
+                    Excel
+                  </Button>
+                )}
+              </>
+            )}
             <Button onClick={() => setShowSendModal(true)}>
               <Send className="w-4 h-4 mr-2" />
               Send Report
@@ -243,7 +273,17 @@ export default function ReportPage() {
           </div>
         )}
 
-        <ReportLayout report={report} layout={layout} />
+        {isPlainPdf ? (
+          <div className="w-full" style={{ height: "calc(100vh - 140px)" }}>
+            <iframe
+              src={`/api/reports/plain-pdf?id=${reportId}`}
+              className="w-full h-full rounded-xl border border-card-border"
+              title="Merged PDF"
+            />
+          </div>
+        ) : (
+          <ReportLayout report={report} layout={layout} />
+        )}
       </div>
     </div>
   );
