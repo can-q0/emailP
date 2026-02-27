@@ -5,9 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface Suggestion {
-  id: string;
   name: string;
-  reportCount?: number;
+  emailCount?: number;
 }
 
 interface BlankInputProps {
@@ -142,7 +141,7 @@ export function BlankInput({
             <div className="absolute z-50 top-full left-0 mt-1 min-w-[200px] rounded-lg border border-card-border bg-card-bg/95 backdrop-blur-sm shadow-lg overflow-hidden">
               {suggestions.map((s, i) => (
                 <button
-                  key={s.id}
+                  key={s.name}
                   type="button"
                   className={`w-full px-3 py-2 flex items-center justify-between text-left text-sm transition-colors ${
                     i === highlightedIndex
@@ -156,9 +155,9 @@ export function BlankInput({
                   onMouseEnter={() => setHighlightedIndex(i)}
                 >
                   <span className="font-medium">{s.name}</span>
-                  {s.reportCount != null && s.reportCount > 0 && (
+                  {s.emailCount != null && s.emailCount > 0 && (
                     <span className="text-xs text-text-muted bg-card-hover px-2 py-0.5 rounded-full ml-3">
-                      {s.reportCount}
+                      {s.emailCount} {s.emailCount === 1 ? "email" : "emails"}
                     </span>
                   )}
                 </button>

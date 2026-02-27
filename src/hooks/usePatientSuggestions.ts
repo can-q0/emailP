@@ -2,11 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 
-interface PatientSuggestion {
-  id: string;
+export interface PatientSuggestion {
   name: string;
-  governmentId?: string;
-  reportCount: number;
+  emailCount: number;
 }
 
 export function usePatientSuggestions(query: string) {
@@ -27,7 +25,7 @@ export function usePatientSuggestions(query: string) {
 
     timerRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/patients?q=${encodeURIComponent(query)}`);
+        const res = await fetch(`/api/patients/suggest?q=${encodeURIComponent(query)}`);
         if (!res.ok) {
           setSuggestions([]);
           return;
@@ -35,10 +33,8 @@ export function usePatientSuggestions(query: string) {
         const data = await res.json();
         setSuggestions(
           data.map((p: Record<string, unknown>) => ({
-            id: p.id as string,
             name: p.name as string,
-            governmentId: p.governmentId as string | undefined,
-            reportCount: (p.reportCount as number) || 0,
+            emailCount: (p.emailCount as number) || 0,
           }))
         );
       } catch {
