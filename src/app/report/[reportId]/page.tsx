@@ -4,18 +4,11 @@ import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Navbar } from "@/components/navbar";
-import { GeneralSummary } from "@/components/report/general-summary";
-import { BloodMetricsChart } from "@/components/report/blood-metrics-chart";
-import { AttentionPoints } from "@/components/report/attention-points";
-import { EmailTimeline } from "@/components/report/email-timeline";
-import { GlassCard } from "@/components/ui/glass-card";
+import { ReportLayout } from "@/components/report/report-layout";
+import { getLayoutConfig } from "@/config/report-layouts";
 import { Button } from "@/components/ui/button";
-import { ReportData, AttentionPoint } from "@/types";
+import { ReportData } from "@/types";
 import {
-  FileText,
-  Activity,
-  AlertTriangle,
-  Mail,
   ArrowLeft,
   Loader2,
   User,
@@ -26,44 +19,6 @@ import {
   Download,
 } from "lucide-react";
 import { format as formatDate } from "date-fns";
-import { cn } from "@/lib/utils";
-
-function getSections(reportType: string, format: string) {
-  // "all emails" focuses on email listing with a brief summary
-  if (reportType === "all emails") {
-    return [
-      { id: "emails", label: "Emails", icon: Mail },
-      { id: "summary", label: "Summary", icon: FileText },
-      { id: "attention", label: "Attention", icon: AlertTriangle },
-    ];
-  }
-
-  // "graphical" format emphasizes charts
-  if (format === "graphical") {
-    return [
-      { id: "metrics", label: "Metrics", icon: Activity },
-      { id: "summary", label: "Summary", icon: FileText },
-      { id: "attention", label: "Attention", icon: AlertTriangle },
-      { id: "emails", label: "Emails", icon: Mail },
-    ];
-  }
-
-  // "summary" format: concise view, no email timeline
-  if (format === "summary") {
-    return [
-      { id: "summary", label: "Summary", icon: FileText },
-      { id: "attention", label: "Attention", icon: AlertTriangle },
-    ];
-  }
-
-  // Default: "detailed report" + "detailed" format
-  return [
-    { id: "summary", label: "Summary", icon: FileText },
-    { id: "metrics", label: "Metrics", icon: Activity },
-    { id: "attention", label: "Attention", icon: AlertTriangle },
-    { id: "emails", label: "Emails", icon: Mail },
-  ];
-}
 
 export default function ReportPage() {
   const { data: session, status } = useSession();
@@ -72,7 +27,6 @@ export default function ReportPage() {
   const reportId = params.reportId as string;
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState("summary");
   const [showSendModal, setShowSendModal] = useState(false);
   const [sendEmail, setSendEmail] = useState("");
   const [sending, setSending] = useState(false);
@@ -142,29 +96,6 @@ export default function ReportPage() {
     fetchReport();
   }, [reportId, session, router]);
 
-  useEffect(() => {
-    if (!report) return;
-
-    const activeSections = getSections(report.reportType, report.format);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setActiveSection(entry.target.id);
-          }
-        }
-      },
-      { rootMargin: "-20% 0px -70% 0px" }
-    );
-
-    activeSections.forEach(({ id }) => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    });
-
-    return () => observer.disconnect();
-  }, [report]);
-
   if (status === "loading" || loading || !session) {
     return (
       <div className="min-h-screen">
@@ -178,25 +109,7 @@ export default function ReportPage() {
 
   if (!report) return null;
 
-  const attentionPoints = (report.attentionPoints || []) as AttentionPoint[];
-  const sections = getSections(report.reportType, report.format);
-  const sectionIds = new Set(sections.map((s) => s.id));
-
-  const contentComponents: Record<string, React.ReactNode> = {
-    summary: report.summary ? <GeneralSummary summary={report.summary} /> : null,
-    metrics:
-      report.bloodMetrics.length > 0 ? (
-        <BloodMetricsChart metrics={report.bloodMetrics} />
-      ) : null,
-    attention:
-      attentionPoints.length > 0 ? (
-        <AttentionPoints points={attentionPoints} />
-      ) : null,
-    emails:
-      report.emails.length > 0 ? (
-        <EmailTimeline emails={report.emails} />
-      ) : null,
-  };
+  const layout = getLayoutConfig(report.reportType, report.format);
 
   return (
     <div className="min-h-screen">
@@ -330,46 +243,7 @@ export default function ReportPage() {
           </div>
         )}
 
-        <div className="flex gap-8">
-          {/* Sticky navigation */}
-          <nav className="hidden lg:block w-48 shrink-0">
-            <div className="sticky top-20 space-y-1">
-              {sections.map(({ id, label, icon: Icon }) => (
-                <a
-                  key={id}
-                  href={`#${id}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    document
-                      .getElementById(id)
-                      ?.scrollIntoView({ behavior: "smooth" });
-                  }}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all",
-                    activeSection === id
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-text-muted hover:text-text-secondary"
-                  )}
-                >
-                  {activeSection === id && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-                  )}
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </a>
-              ))}
-            </div>
-          </nav>
-
-          {/* Content */}
-          <div className="flex-1 space-y-12 min-w-0">
-            {sections.map(({ id }) =>
-              sectionIds.has(id) && contentComponents[id] ? (
-                <div key={id}>{contentComponents[id]}</div>
-              ) : null
-            )}
-          </div>
-        </div>
+        <ReportLayout report={report} layout={layout} />
       </div>
     </div>
   );
