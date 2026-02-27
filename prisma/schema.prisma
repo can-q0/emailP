@@ -124,6 +124,8 @@ model Report {
   attentionPoints String?
   status          String        @default("pending")
   step            String?
+  reportType      String        @default("detailed report")
+  format          String        @default("detailed")
   patientId       String
   patient         Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
   userId          String

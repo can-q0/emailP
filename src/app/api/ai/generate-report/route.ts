@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import {
-  classifyEmailsBatch,
   extractBloodMetricsBatch,
   generateSummaryAndAttentionPoints,
 } from "@/lib/openai";
@@ -26,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, generateReportSchema);
   if (!parsed.success) return parsed.response;
-  const { patientId, emailIds, title } = parsed.data;
+  const { patientId, emailIds, title, reportType, format } = parsed.data;
 
   const userId = session.user.id;
 
@@ -49,14 +48,23 @@ export async function POST(req: NextRequest) {
       patientId,
       userId,
       status: "processing",
-      step: "classifying",
+      step: "extracting_metrics",
+      reportType: reportType || "detailed report",
+      format: format || "detailed",
       reportEmails: {
         create: emails.map((e) => ({ emailId: e.id })),
       },
     },
   });
 
-  processReport(report.id, patient.name, emails, userId).catch(console.error);
+  processReport(
+    report.id,
+    patient.name,
+    emails,
+    userId,
+    reportType || "detailed report",
+    format || "detailed"
+  ).catch(console.error);
 
   return NextResponse.json({ reportId: report.id, status: "processing" });
 }
@@ -70,43 +78,29 @@ async function processReport(
     body: string | null;
     date: Date | null;
   }>,
-  userId: string
+  userId: string,
+  reportType: string,
+  format: string
 ) {
   try {
-    // Step 1: Classify ALL emails in parallel
-    await prisma.report.update({
-      where: { id: reportId },
-      data: { step: "classifying" },
-    });
+    // Classification is done at sync time (subject parsing + PDF extraction).
+    // All synced emails with body text (from PDF) are lab reports.
+    const labEmails = emails.filter((e) => e.body);
 
-    const emailsWithBody = emails.filter((e) => e.body);
-    const classifications = await classifyEmailsBatch(
-      emailsWithBody.map((e) => ({
-        id: e.id,
-        body: e.body!,
-        subject: e.subject || "",
-      }))
-    );
-
-    const labEmails: typeof emails = [];
-    for (const email of emailsWithBody) {
-      const classification = classifications.get(email.id);
-      if (!classification) continue;
-
-      await prisma.email.update({
-        where: { id: email.id },
+    if (labEmails.length === 0) {
+      await prisma.report.update({
+        where: { id: reportId },
         data: {
-          isLabReport: classification.isLabReport,
-          extractedData: JSON.stringify(classification),
+          summary: null,
+          attentionPoints: null,
+          status: "no_results",
+          step: null,
         },
       });
-
-      if (classification.isLabReport) {
-        labEmails.push(email);
-      }
+      return;
     }
 
-    // Step 2: Extract blood metrics from ALL lab emails in parallel
+    // Step 1: Extract blood metrics from all emails
     await prisma.report.update({
       where: { id: reportId },
       data: { step: "extracting_metrics" },
@@ -126,6 +120,11 @@ async function processReport(
       measuredAt: Date;
     }> = [];
 
+    const reportRecord = await prisma.report.findUnique({
+      where: { id: reportId },
+      select: { patientId: true },
+    });
+
     for (const email of labEmails) {
       const metrics = metricsMap.get(email.id) || [];
       for (const metric of metrics) {
@@ -140,12 +139,7 @@ async function processReport(
           referenceMax: metric.referenceMax ?? ref?.max ?? null,
           isAbnormal: metric.isAbnormal,
           measuredAt: email.date || new Date(),
-          patientId: (
-            await prisma.report.findUnique({
-              where: { id: reportId },
-              select: { patientId: true },
-            })
-          )!.patientId,
+          patientId: reportRecord!.patientId,
           reportId,
         };
 
@@ -159,7 +153,7 @@ async function processReport(
       }
     }
 
-    // Step 3: Generate summary AND attention points in ONE call
+    // Step 2: Generate summary AND attention points in ONE call
     await prisma.report.update({
       where: { id: reportId },
       data: { step: "generating_summary" },
@@ -182,7 +176,9 @@ async function processReport(
           unit: m.unit,
           isAbnormal: m.isAbnormal,
           measuredAt: m.measuredAt.toISOString(),
-        }))
+        })),
+        reportType,
+        format
       );
 
     await prisma.report.update({

@@ -17,20 +17,6 @@ export const defaultQueryTemplate: QueryTemplate = {
       placeholder: "patient name",
       kind: "text",
     },
-    { type: "text", value: ", covering the period from " },
-    {
-      type: "blank",
-      id: "dateFrom",
-      placeholder: "start date",
-      kind: "text",
-    },
-    { type: "text", value: " to " },
-    {
-      type: "blank",
-      id: "dateTo",
-      placeholder: "end date",
-      kind: "text",
-    },
     { type: "text", value: ", presented in " },
     {
       type: "choice",

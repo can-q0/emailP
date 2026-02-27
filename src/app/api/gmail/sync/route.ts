@@ -5,11 +5,13 @@ import {
   searchGmailMessages,
   batchFetchMessages,
   extractMessageMeta,
+  fetchAttachment,
 } from "@/lib/gmail";
-import { extractBody } from "@/lib/email-parser";
+import { extractBody, findPdfParts, parseLabSubject, decodeBase64UrlToBuffer } from "@/lib/email-parser";
 import { prisma } from "@/lib/prisma";
 import { parseBody, gmailSyncSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
+import { extractPdfText } from "@/lib/pdf";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -57,17 +59,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ synced: 0, emails: [] });
     }
 
-    // Filter out already-synced messages
+    // Check which messages are already synced
     const messageIds = messageRefs.map((m) => m.id!);
     const existing = await prisma.email.findMany({
       where: { gmailMessageId: { in: messageIds } },
-      select: { gmailMessageId: true },
+      select: { id: true, gmailMessageId: true, body: true },
     });
-    const existingIds = new Set(existing.map((e) => e.gmailMessageId));
-    const newMessageIds = messageIds.filter((id) => !existingIds.has(id));
+    const existingMap = new Map(existing.map((e) => [e.gmailMessageId, e]));
+    const newMessageIds = messageIds.filter((id) => !existingMap.has(id));
 
-    // Fetch full messages
-    const fullMessages = await batchFetchMessages(gmail, newMessageIds);
+    // Find existing emails that need PDF re-extraction (empty/short body)
+    const needsReExtraction = existing.filter(
+      (e) => !e.body || e.body.trim().length < 100
+    );
+    const reExtractIds = needsReExtraction.map((e) => e.gmailMessageId);
+
+    // Fetch new messages + messages needing re-extraction
+    const idsToFetch = [...newMessageIds, ...reExtractIds];
+    const fullMessages = await batchFetchMessages(gmail, idsToFetch);
 
     // Find or create patient if name provided
     let patientId: string | undefined;
@@ -89,36 +98,99 @@ export async function POST(req: NextRequest) {
       patientId = patient.id;
     }
 
-    // Store emails
+    // Process all fetched messages — extract PDF text and parse subject
     const emails = [];
+    const reExtractIdSet = new Set(reExtractIds);
+
     for (const message of fullMessages) {
       const meta = extractMessageMeta(message);
       const { text, html } = extractBody(message);
 
-      const email = await prisma.email.create({
-        data: {
-          ...meta,
-          body: text,
-          htmlBody: html,
-          userId,
-          patientId: patientId ?? null,
-        },
-      });
-      emails.push(email);
+      // Extract PDF text from attachment
+      let pdfText = "";
+      const pdfParts = findPdfParts(message);
+      for (const part of pdfParts) {
+        try {
+          let raw: string;
+          if (part.data) {
+            raw = part.data;
+          } else if (part.attachmentId) {
+            raw = await fetchAttachment(gmail, message.id!, part.attachmentId);
+          } else {
+            continue;
+          }
+          const buffer = decodeBase64UrlToBuffer(raw);
+          pdfText += await extractPdfText(buffer) + "\n";
+        } catch (err) {
+          console.error("PDF parse error for message", message.id, err);
+        }
+      }
+
+      // Parse subject for patient info and date
+      const subjectInfo = meta.subject ? parseLabSubject(meta.subject) : null;
+      const bodyText = pdfText || text;
+      const isLabReport = !!pdfText || !!subjectInfo;
+      const emailDate = meta.date ?? subjectInfo?.date ?? null;
+
+      const extractedData = subjectInfo
+        ? JSON.stringify({
+            isLabReport: true,
+            patientName: subjectInfo.patientName,
+            gender: subjectInfo.gender,
+            birthYear: subjectInfo.birthYear,
+          })
+        : null;
+
+      // Is this a re-extraction of an existing email?
+      if (reExtractIdSet.has(message.id!)) {
+        const existingEmail = existingMap.get(message.id!)!;
+        await prisma.email.update({
+          where: { id: existingEmail.id },
+          data: {
+            body: bodyText,
+            htmlBody: html,
+            isLabReport,
+            extractedData,
+            date: emailDate ?? undefined,
+            patientId: patientId ?? undefined,
+          },
+        });
+        const updated = await prisma.email.findUnique({ where: { id: existingEmail.id } });
+        if (updated) emails.push(updated);
+      } else {
+        // New email — create
+        const email = await prisma.email.create({
+          data: {
+            ...meta,
+            date: emailDate,
+            body: bodyText,
+            htmlBody: html,
+            isLabReport,
+            extractedData,
+            userId,
+            patientId: patientId ?? null,
+          },
+        });
+        emails.push(email);
+      }
     }
 
-    // Also return existing emails for the patient
-    const existingEmails = existingIds.size > 0
+    // Return existing emails that didn't need re-extraction
+    const existingIds = new Set(existing.map((e) => e.gmailMessageId));
+    const unchangedExisting = existing.filter(
+      (e) => !reExtractIdSet.has(e.gmailMessageId) && existingIds.has(e.gmailMessageId)
+    );
+    const unchangedEmails = unchangedExisting.length > 0
       ? await prisma.email.findMany({
-          where: { gmailMessageId: { in: [...existingIds] } },
+          where: { id: { in: unchangedExisting.map((e) => e.id) } },
         })
       : [];
 
     // Update patient link for existing emails if needed
-    if (patientId && existingEmails.length > 0) {
+    if (patientId && unchangedEmails.length > 0) {
       await prisma.email.updateMany({
         where: {
-          id: { in: existingEmails.map((e) => e.id) },
+          id: { in: unchangedEmails.map((e) => e.id) },
           patientId: null,
         },
         data: { patientId },
@@ -133,10 +205,11 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    const allEmails = [...emails, ...unchangedEmails];
     return NextResponse.json({
       synced: emails.length,
-      total: emails.length + existingEmails.length,
-      emails: [...emails, ...existingEmails],
+      total: allEmails.length,
+      emails: allEmails,
     });
   } catch (error) {
     console.error("Gmail sync error:", error);

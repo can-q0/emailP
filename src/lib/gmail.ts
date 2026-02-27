@@ -110,6 +110,19 @@ function getHeader(
   )?.value ?? undefined;
 }
 
+export async function fetchAttachment(
+  gmail: gmail_v1.Gmail,
+  messageId: string,
+  attachmentId: string
+): Promise<string> {
+  const res = await gmail.users.messages.attachments.get({
+    userId: "me",
+    messageId,
+    id: attachmentId,
+  });
+  return res.data.data || "";
+}
+
 export function extractMessageMeta(message: gmail_v1.Schema$Message) {
   const headers = message.payload?.headers;
   return {

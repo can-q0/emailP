@@ -23,6 +23,8 @@ export const generateReportSchema = z.object({
   patientId: z.string().min(1),
   emailIds: z.array(z.string()).min(1),
   title: z.string().optional(),
+  reportType: z.enum(["all emails", "detailed report", "comparison"]).optional(),
+  format: z.enum(["summary", "detailed", "graphical"]).optional(),
 });
 
 export const reportIdSchema = z.object({

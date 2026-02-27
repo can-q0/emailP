@@ -25,15 +25,45 @@ import {
   Trash2,
   Download,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format as formatDate } from "date-fns";
 import { cn } from "@/lib/utils";
 
-const sections = [
-  { id: "summary", label: "Summary", icon: FileText },
-  { id: "metrics", label: "Metrics", icon: Activity },
-  { id: "attention", label: "Attention", icon: AlertTriangle },
-  { id: "emails", label: "Emails", icon: Mail },
-];
+function getSections(reportType: string, format: string) {
+  // "all emails" focuses on email listing with a brief summary
+  if (reportType === "all emails") {
+    return [
+      { id: "emails", label: "Emails", icon: Mail },
+      { id: "summary", label: "Summary", icon: FileText },
+      { id: "attention", label: "Attention", icon: AlertTriangle },
+    ];
+  }
+
+  // "graphical" format emphasizes charts
+  if (format === "graphical") {
+    return [
+      { id: "metrics", label: "Metrics", icon: Activity },
+      { id: "summary", label: "Summary", icon: FileText },
+      { id: "attention", label: "Attention", icon: AlertTriangle },
+      { id: "emails", label: "Emails", icon: Mail },
+    ];
+  }
+
+  // "summary" format: concise view, no email timeline
+  if (format === "summary") {
+    return [
+      { id: "summary", label: "Summary", icon: FileText },
+      { id: "attention", label: "Attention", icon: AlertTriangle },
+    ];
+  }
+
+  // Default: "detailed report" + "detailed" format
+  return [
+    { id: "summary", label: "Summary", icon: FileText },
+    { id: "metrics", label: "Metrics", icon: Activity },
+    { id: "attention", label: "Attention", icon: AlertTriangle },
+    { id: "emails", label: "Emails", icon: Mail },
+  ];
+}
 
 export default function ReportPage() {
   const { data: session, status } = useSession();
@@ -113,6 +143,9 @@ export default function ReportPage() {
   }, [reportId, session, router]);
 
   useEffect(() => {
+    if (!report) return;
+
+    const activeSections = getSections(report.reportType, report.format);
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -124,7 +157,7 @@ export default function ReportPage() {
       { rootMargin: "-20% 0px -70% 0px" }
     );
 
-    sections.forEach(({ id }) => {
+    activeSections.forEach(({ id }) => {
       const el = document.getElementById(id);
       if (el) observer.observe(el);
     });
@@ -146,6 +179,24 @@ export default function ReportPage() {
   if (!report) return null;
 
   const attentionPoints = (report.attentionPoints || []) as AttentionPoint[];
+  const sections = getSections(report.reportType, report.format);
+  const sectionIds = new Set(sections.map((s) => s.id));
+
+  const contentComponents: Record<string, React.ReactNode> = {
+    summary: report.summary ? <GeneralSummary summary={report.summary} /> : null,
+    metrics:
+      report.bloodMetrics.length > 0 ? (
+        <BloodMetricsChart metrics={report.bloodMetrics} />
+      ) : null,
+    attention:
+      attentionPoints.length > 0 ? (
+        <AttentionPoints points={attentionPoints} />
+      ) : null,
+    emails:
+      report.emails.length > 0 ? (
+        <EmailTimeline emails={report.emails} />
+      ) : null,
+  };
 
   return (
     <div className="min-h-screen">
@@ -169,7 +220,7 @@ export default function ReportPage() {
                   <span>TC: {report.patient.governmentId}</span>
                 )}
                 <span>•</span>
-                <span>{format(new Date(report.createdAt), "MMM d, yyyy")}</span>
+                <span>{formatDate(new Date(report.createdAt), "MMM d, yyyy")}</span>
               </div>
             </div>
           </div>
@@ -312,18 +363,10 @@ export default function ReportPage() {
 
           {/* Content */}
           <div className="flex-1 space-y-12 min-w-0">
-            {report.summary && <GeneralSummary summary={report.summary} />}
-
-            {report.bloodMetrics.length > 0 && (
-              <BloodMetricsChart metrics={report.bloodMetrics} />
-            )}
-
-            {attentionPoints.length > 0 && (
-              <AttentionPoints points={attentionPoints} />
-            )}
-
-            {report.emails.length > 0 && (
-              <EmailTimeline emails={report.emails} />
+            {sections.map(({ id }) =>
+              sectionIds.has(id) && contentComponents[id] ? (
+                <div key={id}>{contentComponents[id]}</div>
+              ) : null
             )}
           </div>
         </div>

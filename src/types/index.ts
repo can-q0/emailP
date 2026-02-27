@@ -47,6 +47,8 @@ export interface ReportData {
   attentionPoints?: AttentionPoint[];
   status: string;
   step?: string;
+  reportType: string;
+  format: string;
   patient: {
     id: string;
     name: string;
