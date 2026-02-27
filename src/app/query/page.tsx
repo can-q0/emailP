@@ -64,8 +64,7 @@ function QueryPageContent() {
         const syncData = await syncRes.json();
 
         if (syncData.total === 0) {
-          setProgress("No emails found. Try a different search.");
-          setTimeout(() => setStep("query"), 2000);
+          setStep("no_results");
           return;
         }
 
