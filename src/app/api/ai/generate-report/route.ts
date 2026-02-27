@@ -151,8 +151,7 @@ async function processReport(
     // Extract metrics only for emails not seen before
     const metricsMap = uncachedEmails.length > 0
       ? await extractBloodMetricsBatch(
-          uncachedEmails.map((e) => ({ id: e.id, body: e.body! })),
-          aiOptions?.model
+          uncachedEmails.map((e) => ({ id: e.id, body: e.body! }))
         )
       : new Map<string, Array<{ metricName: string; value: number; unit: string; referenceMin?: number; referenceMax?: number; isAbnormal: boolean }>>();
 
@@ -243,6 +242,20 @@ async function processReport(
 
     if (dbMetrics.length > 0) {
       await prisma.bloodMetric.createMany({ data: dbMetrics });
+    }
+
+    // If no metrics were found across all emails, mark as no_results
+    if (allMetrics.length === 0) {
+      await prisma.report.update({
+        where: { id: reportId },
+        data: {
+          summary: null,
+          attentionPoints: null,
+          status: "no_results",
+          step: null,
+        },
+      });
+      return;
     }
 
     // Step 2: Generate summary AND attention points in ONE call
