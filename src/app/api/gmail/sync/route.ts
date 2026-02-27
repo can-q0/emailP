@@ -7,7 +7,14 @@ import {
   extractMessageMeta,
   fetchAttachment,
 } from "@/lib/gmail";
-import { extractBody, findPdfParts, parseLabSubject, decodeBase64UrlToBuffer } from "@/lib/email-parser";
+import {
+  extractBody,
+  findPdfParts,
+  parseLabSubject,
+  parseForwardingHeaders,
+  parsePdfMetadata,
+  decodeBase64UrlToBuffer,
+} from "@/lib/email-parser";
 import { prisma } from "@/lib/prisma";
 import { parseBody, gmailSyncSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
@@ -126,18 +133,46 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Parse subject for patient info and date
+      // --- Cascading metadata extraction ---
       const subjectInfo = meta.subject ? parseLabSubject(meta.subject) : null;
-      const bodyText = pdfText || text;
-      const isLabReport = !!pdfText || !!subjectInfo;
-      const emailDate = meta.date ?? subjectInfo?.date ?? null;
+      const forwardedInfo = text ? parseForwardingHeaders(text) : null;
+      const forwardedSubjectInfo = forwardedInfo?.subject ? parseLabSubject(forwardedInfo.subject) : null;
+      const pdfMeta = pdfText ? parsePdfMetadata(pdfText) : null;
 
-      const extractedData = subjectInfo
+      const bodyText = pdfText || text;
+      const isLabReport = !!pdfText || !!subjectInfo || !!forwardedSubjectInfo || !!pdfMeta?.patientName;
+
+      // Priority cascade: subject > forwarded subject > PDF
+      const resolvedName = subjectInfo?.patientName ?? forwardedSubjectInfo?.patientName ?? pdfMeta?.patientName ?? null;
+      const resolvedGender = subjectInfo?.gender ?? forwardedSubjectInfo?.gender ?? pdfMeta?.gender ?? null;
+      const resolvedBirthYear = subjectInfo?.birthYear
+        ?? forwardedSubjectInfo?.birthYear
+        ?? (pdfMeta?.birthDate ? pdfMeta.birthDate.getFullYear() : null);
+      const resolvedGovernmentId = pdfMeta?.governmentId ?? null;
+
+      // Date cascade: subject date > forwarded original date > forwarded subject date > PDF date > Gmail header
+      const emailDate = subjectInfo?.date
+        ?? forwardedInfo?.date
+        ?? forwardedSubjectInfo?.date
+        ?? pdfMeta?.date
+        ?? meta.date
+        ?? null;
+
+      // Track which source provided metadata (for debugging)
+      const metadataSource = subjectInfo ? "subject"
+        : forwardedSubjectInfo ? "forwarded_subject"
+        : pdfMeta?.patientName ? "pdf"
+        : forwardedInfo ? "forwarded_headers"
+        : null;
+
+      const extractedData = resolvedName
         ? JSON.stringify({
             isLabReport: true,
-            patientName: subjectInfo.patientName,
-            gender: subjectInfo.gender,
-            birthYear: subjectInfo.birthYear,
+            patientName: resolvedName,
+            gender: resolvedGender,
+            birthYear: resolvedBirthYear,
+            governmentId: resolvedGovernmentId,
+            metadataSource,
           })
         : null;
 
