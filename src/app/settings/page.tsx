@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
-import { Settings, Brain, Mail, User } from "lucide-react";
+import { Settings, Brain, Mail, User, ArrowLeft } from "lucide-react";
 
 interface UserSettings {
   aiModel: string;
@@ -59,8 +59,11 @@ export default function SettingsPage() {
     }
     if (status === "authenticated") {
       fetch("/api/settings")
-        .then((r) => r.json())
-        .then(setSettings)
+        .then(async (r) => {
+          if (!r.ok) throw new Error("Failed to load settings");
+          const data = await r.json();
+          setSettings(data);
+        })
         .catch(() => setError("Failed to load settings"));
     }
   }, [status, router]);
@@ -102,7 +105,7 @@ export default function SettingsPage() {
     }
   }
 
-  if (status === "loading" || !settings) {
+  if (status === "loading" || (!settings && !error)) {
     return (
       <div className="max-w-2xl mx-auto px-6 py-10">
         <div className="animate-pulse space-y-6">
@@ -115,9 +118,31 @@ export default function SettingsPage() {
     );
   }
 
+  if (error && !settings) {
+    return (
+      <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+        <div className="flex items-center gap-3">
+          <Settings className="w-6 h-6 text-primary" />
+          <h1 className="text-2xl font-semibold">Settings</h1>
+        </div>
+        <GlassCard className="p-6">
+          <p className="text-severity-high">{error}</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (!settings) return null;
+
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
       <div className="flex items-center gap-3">
+        <button
+          onClick={() => router.back()}
+          className="p-1.5 rounded-lg hover:bg-card-hover transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-5 h-5 text-text-secondary" />
+        </button>
         <Settings className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-semibold">Settings</h1>
       </div>
