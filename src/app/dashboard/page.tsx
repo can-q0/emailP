@@ -2,21 +2,62 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Navbar } from "@/components/navbar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, FileText, Clock, ArrowRight } from "lucide-react";
+import { usePatientSuggestions } from "@/hooks/usePatientSuggestions";
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [patientName, setPatientName] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const { suggestions } = usePatientSuggestions(patientName);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/auth/signin");
   }, [status, router]);
+
+  useEffect(() => {
+    setShowDropdown(suggestions.length > 0);
+    setHighlightedIndex(-1);
+  }, [suggestions]);
+
+  const pickSuggestion = useCallback(
+    (name: string) => {
+      setPatientName(name);
+      setShowDropdown(false);
+      router.push(`/query?patient=${encodeURIComponent(name)}`);
+    },
+    [router]
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!showDropdown || suggestions.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        prev < suggestions.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        prev > 0 ? prev - 1 : suggestions.length - 1
+      );
+    } else if (e.key === "Enter" && highlightedIndex >= 0) {
+      e.preventDefault();
+      pickSuggestion(suggestions[highlightedIndex].name);
+    } else if (e.key === "Escape") {
+      setShowDropdown(false);
+    }
+  };
 
   if (status === "loading" || !session) {
     return (
@@ -50,15 +91,58 @@ export default function DashboardPage() {
         {/* Search */}
         <GlassCard className="p-8 mb-12">
           <form onSubmit={handleSearch} className="flex gap-3">
-            <div className="relative flex-1">
+            <div
+              className="relative flex-1"
+              ref={dropdownRef}
+              onBlur={(e) => {
+                if (!dropdownRef.current?.contains(e.relatedTarget as Node)) {
+                  setShowDropdown(false);
+                }
+              }}
+            >
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
               <Input
+                ref={inputRef}
                 value={patientName}
                 onChange={(e) => setPatientName(e.target.value)}
+                onFocus={() => {
+                  if (suggestions.length > 0) setShowDropdown(true);
+                }}
+                onKeyDown={handleKeyDown}
                 placeholder="Enter patient name..."
                 className="pl-10"
                 autoFocus
+                autoComplete="off"
               />
+
+              {/* Suggestions dropdown */}
+              {showDropdown && suggestions.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-card-border bg-card-bg/95 backdrop-blur-sm shadow-lg overflow-hidden">
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`w-full px-4 py-2.5 flex items-center justify-between text-left text-sm transition-colors ${
+                        i === highlightedIndex
+                          ? "bg-primary/10 text-primary"
+                          : "hover:bg-card-hover"
+                      }`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        pickSuggestion(s.name);
+                      }}
+                      onMouseEnter={() => setHighlightedIndex(i)}
+                    >
+                      <span className="font-medium">{s.name}</span>
+                      {s.reportCount > 0 && (
+                        <span className="text-xs text-text-muted bg-card-hover px-2 py-0.5 rounded-full">
+                          {s.reportCount} {s.reportCount === 1 ? "report" : "reports"}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <Button type="submit" disabled={!patientName.trim()}>
               <ArrowRight className="w-4 h-4 mr-1" />

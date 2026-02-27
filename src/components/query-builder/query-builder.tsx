@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useQueryBuilder } from "@/hooks/useQueryBuilder";
+import { usePatientSuggestions } from "@/hooks/usePatientSuggestions";
 import { BlankInput } from "./blank-input";
 import { ChoicePills } from "./choice-pills";
 import { QueryTemplate, QueryValues } from "@/types";
@@ -31,6 +32,9 @@ export function QueryBuilder({
     fillValue,
     start,
   } = useQueryBuilder(template);
+
+  const [patientInput, setPatientInput] = useState("");
+  const { suggestions: patientSuggestions } = usePatientSuggestions(patientInput);
 
   const hasStarted = useRef(false);
 
@@ -61,6 +65,7 @@ export function QueryBuilder({
           }
 
           if (segment.type === "blank") {
+            const isPatientName = segment.id === "patientName";
             return (
               <BlankInput
                 key={i}
@@ -70,6 +75,8 @@ export function QueryBuilder({
                   state.phase === "completed" ? values[segment.id] : undefined
                 }
                 onSubmit={(val) => fillValue(segment.id, val)}
+                suggestions={isPatientName ? patientSuggestions : undefined}
+                onInputChange={isPatientName ? setPatientInput : undefined}
               />
             );
           }
