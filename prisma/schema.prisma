@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model User {
@@ -62,6 +62,8 @@ model Patient {
   name         String
   governmentId String?
   email        String?
+  birthYear    Int?
+  gender       String?
   userId       String
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   emails       Email[]
@@ -88,6 +90,7 @@ model Email {
   labels          String        @default("[]")
   isLabReport     Boolean       @default(false)
   extractedData   String?
+  pdfPath         String?
   patientId       String?
   patient         Patient?      @relation(fields: [patientId], references: [id])
   reportEmails    ReportEmail[]
@@ -127,10 +130,14 @@ model Report {
   step            String?
   reportType      String        @default("detailed report")
   format          String        @default("detailed")
+  comparisonDateA DateTime?
+  comparisonDateB DateTime?
   patientId       String
   patient         Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
   userId          String
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trendAlerts     String?
+  pdfPath         String?
   reportEmails    ReportEmail[]
   bloodMetrics    BloodMetric[]
   createdAt       DateTime      @default(now())
@@ -151,18 +158,22 @@ model ReportEmail {
 }
 
 model UserSettings {
-  id                 String   @id @default(cuid())
-  userId             String   @unique
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  aiModel            String   @default("gpt-5")
-  reportLanguage     String   @default("en")
-  reportDetailLevel  String   @default("detailed")
-  customSystemPrompt String?
-  autoClassify       Boolean  @default(true)
-  displayName        String?
-  theme              String   @default("light")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiModel               String   @default("gpt-5")
+  reportLanguage        String   @default("en")
+  reportDetailLevel     String   @default("detailed")
+  customSystemPrompt    String?
+  autoClassify          Boolean  @default(true)
+  emailNotifications    Boolean  @default(true)
+  displayName           String?
+  theme                 String   @default("light")
+  onboardingCompleted   Boolean  @default(false)
+  completedTours        String   @default("[]")
+  isDemoMode            Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model EmailSyncLog {

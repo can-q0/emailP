@@ -13,13 +13,16 @@ import {
 import { GeneralSummary } from "./general-summary";
 import { BloodMetricsChart } from "./blood-metrics-chart";
 import { AttentionPoints } from "./attention-points";
+import { TrendAlerts } from "./trend-alerts";
 import { EmailTimeline } from "./email-timeline";
+import { ScrollReveal } from "@/components/ui/scroll-reveal";
 import { FileText, Activity, AlertTriangle, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ReportLayoutProps {
   report: ReportData;
   layout: LayoutConfig;
+  language?: string;
 }
 
 const sectionIcons: Record<string, typeof FileText> = {
@@ -32,9 +35,11 @@ const sectionIcons: Record<string, typeof FileText> = {
 function SectionComponent({
   section,
   report,
+  language = "en",
 }: {
   section: SectionConfig;
   report: ReportData;
+  language?: string;
 }) {
   const attentionPoints = (report.attentionPoints || []) as AttentionPoint[];
 
@@ -51,6 +56,9 @@ function SectionComponent({
         <BloodMetricsChart
           metrics={report.bloodMetrics}
           variant={section.variant as MetricsVariant}
+          comparisonDateA={report.comparisonDateA}
+          comparisonDateB={report.comparisonDateB}
+          language={language}
         />
       ) : null;
     case "attention":
@@ -58,6 +66,7 @@ function SectionComponent({
         <AttentionPoints
           points={attentionPoints}
           variant={section.variant as AttentionVariant}
+          language={language}
         />
       ) : null;
     case "emails":
@@ -122,7 +131,7 @@ const spacingClass = {
   spacious: "space-y-12",
 } as const;
 
-export function ReportLayout({ report, layout }: ReportLayoutProps) {
+export function ReportLayout({ report, layout, language = "en" }: ReportLayoutProps) {
   const [activeSection, setActiveSection] = useState<string>(layout.sections[0]?.id || "summary");
 
   useEffect(() => {
@@ -145,41 +154,58 @@ export function ReportLayout({ report, layout }: ReportLayoutProps) {
     return () => observer.disconnect();
   }, [layout.sections]);
 
+  const sectionTourMap: Record<string, string> = {
+    summary: "ai-summary",
+    metrics: "blood-chart",
+    attention: "attention-points",
+  };
+
   const renderSections = (sections: SectionConfig[]) =>
-    sections.map((section) => (
-      <div key={section.id}>
-        <SectionComponent section={section} report={report} />
-      </div>
+    sections.map((section, i) => (
+      <ScrollReveal key={section.id} delay={i * 0.1}>
+        <div data-tour={sectionTourMap[section.id]}>
+          <SectionComponent section={section} report={report} language={language} />
+        </div>
+      </ScrollReveal>
     ));
+
+  const trendAlertsBlock = report.trendAlerts && report.trendAlerts.length > 0
+    ? <ScrollReveal><TrendAlerts alerts={report.trendAlerts} /></ScrollReveal>
+    : null;
 
   // ── two-column layout ──────────────────────────────────
   if (layout.structure === "two-column") {
-    // First section goes left (60%), rest go right (40%)
     const leftSections = layout.sections.slice(0, 1);
     const rightSections = layout.sections.slice(1);
 
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className={cn("lg:col-span-3", spacingClass[layout.spacing])}>
-          {renderSections(leftSections)}
+      <>
+        {trendAlertsBlock}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className={cn("lg:col-span-3", spacingClass[layout.spacing])}>
+            {renderSections(leftSections)}
+          </div>
+          <div className={cn("lg:col-span-2", spacingClass[layout.spacing])}>
+            {renderSections(rightSections)}
+          </div>
         </div>
-        <div className={cn("lg:col-span-2", spacingClass[layout.spacing])}>
-          {renderSections(rightSections)}
-        </div>
-      </div>
+      </>
     );
   }
 
   // ── dashboard-grid layout ──────────────────────────────
   if (layout.structure === "dashboard-grid") {
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {layout.sections.map((section) => (
-          <div key={section.id}>
-            <SectionComponent section={section} report={report} />
-          </div>
-        ))}
-      </div>
+      <>
+        {trendAlertsBlock}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {layout.sections.map((section, i) => (
+            <ScrollReveal key={section.id} delay={i * 0.1}>
+              <SectionComponent section={section} report={report} language={language} />
+            </ScrollReveal>
+          ))}
+        </div>
+      </>
     );
   }
 
@@ -212,6 +238,7 @@ export function ReportLayout({ report, layout }: ReportLayoutProps) {
               })}
             </div>
           </nav>
+          {trendAlertsBlock}
           <div className={cn(spacingClass[layout.spacing])}>
             {renderSections(layout.sections)}
           </div>
@@ -223,6 +250,7 @@ export function ReportLayout({ report, layout }: ReportLayoutProps) {
   // ── single-column layout (default) ─────────────────────
   return (
     <div className={cn(spacingClass[layout.spacing])}>
+      {trendAlertsBlock}
       {renderSections(layout.sections)}
     </div>
   );

@@ -35,6 +35,9 @@ export async function GET(req: NextRequest) {
       attentionPoints: report.attentionPoints
         ? JSON.parse(report.attentionPoints)
         : [],
+      trendAlerts: report.trendAlerts
+        ? JSON.parse(report.trendAlerts)
+        : [],
       emails: report.reportEmails.map((re) => re.email),
     });
   }
@@ -43,7 +46,7 @@ export async function GET(req: NextRequest) {
   const take = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10) || 50), 100) : undefined;
 
   const reports = await prisma.report.findMany({
-    where: { userId: session.user.id },
+    where: { userId: session.user.id, reportType: { not: "cache" } },
     include: {
       patient: { select: { id: true, name: true } },
       _count: { select: { bloodMetrics: true, reportEmails: true } },

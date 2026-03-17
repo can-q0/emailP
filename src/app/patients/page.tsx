@@ -3,9 +3,13 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { Navbar } from "@/components/navbar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
+import { PageTransition } from "@/components/ui/page-transition";
+import { SkeletonCard } from "@/components/ui/skeleton";
 import {
   Users,
   Search,
@@ -91,6 +95,7 @@ export default function PatientsPage() {
           p.id === id ? { ...p, name: editName, governmentId: editGovId || null } : p
         )
       );
+      toast.success("Patient updated.");
     }
     cancelEdit();
   };
@@ -102,6 +107,7 @@ export default function PatientsPage() {
       const res = await fetch(`/api/patients?id=${id}`, { method: "DELETE" });
       if (res.ok) {
         setPatients((prev) => prev.filter((p) => p.id !== id));
+        toast.success("Patient deleted.");
       }
     } finally {
       setDeletingId(null);
@@ -129,6 +135,7 @@ export default function PatientsPage() {
       if (res.ok) {
         setShowMergeModal(false);
         setMergeSource(null);
+        toast.success("Patients merged.");
         fetchPatients(searchQuery);
       }
     } finally {
@@ -138,8 +145,13 @@ export default function PatientsPage() {
 
   if (status === "loading" || !session) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen">
+        <Navbar />
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 space-y-3">
+          {[0, 1, 2, 3].map((i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -150,7 +162,7 @@ export default function PatientsPage() {
     <div className="min-h-screen">
       <Navbar />
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
+      <PageTransition className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold">Patients</h1>
         </div>
@@ -168,12 +180,16 @@ export default function PatientsPage() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          <div className="space-y-3">
+            {[0, 1, 2, 3].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
         ) : patients.length === 0 ? (
           <GlassCard className="p-12 text-center">
-            <Users className="w-12 h-12 text-text-faint mx-auto mb-4" />
+            <div className="animate-float">
+              <Users className="w-12 h-12 text-text-faint mx-auto mb-4" />
+            </div>
             <h3 className="font-semibold mb-2">No patients found</h3>
             <p className="text-sm text-text-secondary">
               {searchQuery
@@ -183,142 +199,165 @@ export default function PatientsPage() {
           </GlassCard>
         ) : (
           <div className="space-y-3">
-            {patients.map((patient) => (
-              <GlassCard key={patient.id} className="p-5">
-                <div className="flex items-center gap-4">
-                  <div className="p-2.5 rounded-xl bg-primary/10">
-                    <Users className="w-5 h-5 text-primary" />
-                  </div>
-
-                  {editingId === patient.id ? (
-                    <div className="flex-1 flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        className="flex-1 px-3 py-1.5 rounded-lg border border-card-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        placeholder="Name"
-                        autoFocus
-                      />
-                      <input
-                        type="text"
-                        value={editGovId}
-                        onChange={(e) => setEditGovId(e.target.value)}
-                        className="w-40 px-3 py-1.5 rounded-lg border border-card-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        placeholder="Gov ID"
-                      />
-                      <button
-                        onClick={() => saveEdit(patient.id)}
-                        className="p-1.5 rounded-lg hover:bg-severity-low/10 text-severity-low"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={cancelEdit}
-                        className="p-1.5 rounded-lg hover:bg-card-hover text-text-muted"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+            {patients.map((patient, i) => (
+              <motion.div
+                key={patient.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.04, duration: 0.3 }}
+                layout
+              >
+                <GlassCard className="p-5">
+                  <div className="flex items-center gap-4">
+                    <div className="p-2.5 rounded-xl bg-primary/10">
+                      <Users className="w-5 h-5 text-primary" />
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold truncate">{patient.name}</h3>
-                        <div className="flex items-center gap-3 text-sm text-text-muted mt-1">
-                          {patient.governmentId && (
-                            <span>TC: {patient.governmentId}</span>
-                          )}
-                          <span className="flex items-center gap-1">
-                            <Mail className="w-3.5 h-3.5" />
-                            {patient.emailCount} emails
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <FileText className="w-3.5 h-3.5" />
-                            {patient.reportCount} reports
-                          </span>
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-1">
+                    {editingId === patient.id ? (
+                      <div className="flex-1 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="flex-1 px-3 py-1.5 rounded-lg border border-card-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          placeholder="Name"
+                          autoFocus
+                        />
+                        <input
+                          type="text"
+                          value={editGovId}
+                          onChange={(e) => setEditGovId(e.target.value)}
+                          className="w-40 px-3 py-1.5 rounded-lg border border-card-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          placeholder="Gov ID"
+                        />
                         <button
-                          onClick={() => openMerge(patient)}
-                          className="p-1.5 rounded-lg hover:bg-card-hover text-text-faint hover:text-text-secondary transition-colors"
-                          title="Merge into another patient"
+                          onClick={() => saveEdit(patient.id)}
+                          className="p-1.5 rounded-lg hover:bg-severity-low/10 text-severity-low"
                         >
-                          <Merge className="w-4 h-4" />
+                          <Check className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => startEdit(patient)}
-                          className="p-1.5 rounded-lg hover:bg-card-hover text-text-faint hover:text-text-secondary transition-colors"
+                          onClick={cancelEdit}
+                          className="p-1.5 rounded-lg hover:bg-card-hover text-text-muted"
                         >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(patient.id)}
-                          disabled={deletingId === patient.id}
-                          className="p-1.5 rounded-lg hover:bg-severity-high/10 text-text-faint hover:text-severity-high transition-colors"
-                        >
-                          {deletingId === patient.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
+                          <X className="w-4 h-4" />
                         </button>
                       </div>
-                    </>
-                  )}
-                </div>
-              </GlassCard>
+                    ) : (
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold truncate">{patient.name}</h3>
+                          <div className="flex items-center gap-3 text-sm text-text-muted mt-1">
+                            {patient.governmentId && (
+                              <span>TC: {patient.governmentId}</span>
+                            )}
+                            <span className="flex items-center gap-1">
+                              <Mail className="w-3.5 h-3.5" />
+                              {patient.emailCount} emails
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <FileText className="w-3.5 h-3.5" />
+                              {patient.reportCount} reports
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => openMerge(patient)}
+                            className="p-1.5 rounded-lg hover:bg-card-hover text-text-faint hover:text-text-secondary transition-colors"
+                            title="Merge into another patient"
+                          >
+                            <Merge className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => startEdit(patient)}
+                            className="p-1.5 rounded-lg hover:bg-card-hover text-text-faint hover:text-text-secondary transition-colors"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(patient.id)}
+                            disabled={deletingId === patient.id}
+                            className="p-1.5 rounded-lg hover:bg-severity-high/10 text-text-faint hover:text-severity-high transition-colors"
+                          >
+                            {deletingId === patient.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </GlassCard>
+              </motion.div>
             ))}
           </div>
         )}
-      </div>
+      </PageTransition>
 
       {/* Merge Modal */}
-      {showMergeModal && mergeSource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-card border border-card-border rounded-2xl shadow-xl w-full max-w-md p-6 mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Merge Patient</h2>
-              <button
-                onClick={() => setShowMergeModal(false)}
-                className="p-1 rounded-lg hover:bg-secondary/50 text-text-muted"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-sm text-text-secondary mb-4">
-              Merge <strong>{mergeSource.name}</strong> into another patient. All emails,
-              reports, and metrics will be moved to the target.
-            </p>
-            <select
-              value={mergeTargetId}
-              onChange={(e) => setMergeTargetId(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-card-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 mb-4"
+      <AnimatePresence>
+        {showMergeModal && mergeSource && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+            onClick={() => setShowMergeModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="bg-card border border-card-border rounded-2xl shadow-xl w-full max-w-md p-6 mx-4"
+              onClick={(e) => e.stopPropagation()}
             >
-              <option value="">Select target patient...</option>
-              {mergeTargets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} {p.governmentId ? `(${p.governmentId})` : ""}
-                </option>
-              ))}
-            </select>
-            <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setShowMergeModal(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleMerge} disabled={merging || !mergeTargetId}>
-                {merging ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Merge className="w-4 h-4 mr-2" />
-                )}
-                {merging ? "Merging..." : "Merge"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Merge Patient</h2>
+                <button
+                  onClick={() => setShowMergeModal(false)}
+                  className="p-1 rounded-lg hover:bg-secondary/50 text-text-muted"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-sm text-text-secondary mb-4">
+                Merge <strong>{mergeSource.name}</strong> into another patient. All emails,
+                reports, and metrics will be moved to the target.
+              </p>
+              <select
+                value={mergeTargetId}
+                onChange={(e) => setMergeTargetId(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-card-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 mb-4"
+              >
+                <option value="">Select target patient...</option>
+                {mergeTargets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} {p.governmentId ? `(${p.governmentId})` : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="flex justify-end gap-3">
+                <Button variant="ghost" onClick={() => setShowMergeModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleMerge} disabled={merging || !mergeTargetId}>
+                  {merging ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Merge className="w-4 h-4 mr-2" />
+                  )}
+                  {merging ? "Merging..." : "Merge"}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

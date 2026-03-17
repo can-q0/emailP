@@ -3,19 +3,32 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-
-interface Suggestion {
-  name: string;
-  emailCount?: number;
-}
+import { Mail, Activity, Loader2 } from "lucide-react";
+import type { PatientSuggestion } from "@/hooks/usePatientSuggestions";
 
 interface BlankInputProps {
   placeholder: string;
   isActive: boolean;
   value?: string;
   onSubmit: (value: string) => void;
-  suggestions?: Suggestion[];
+  suggestions?: PatientSuggestion[];
   onInputChange?: (value: string) => void;
+  suggestionsLoading?: boolean;
+}
+
+function InitialsAvatar({ name }: { name: string }) {
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toLocaleUpperCase("tr-TR"))
+    .join("");
+
+  return (
+    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
+      {initials}
+    </div>
+  );
 }
 
 export function BlankInput({
@@ -25,6 +38,7 @@ export function BlankInput({
   onSubmit,
   suggestions,
   onInputChange,
+  suggestionsLoading,
 }: BlankInputProps) {
   const [inputValue, setInputValue] = useState(value || "");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -136,34 +150,104 @@ export function BlankInput({
             style={{ width: `${Math.max(inputValue.length, placeholder.length) * 0.6 + 2}em` }}
           />
 
-          {/* Suggestions dropdown */}
-          {showDropdown && suggestions && suggestions.length > 0 && (
-            <div className="absolute z-50 top-full left-0 mt-1 min-w-[200px] rounded-lg border border-card-border bg-card-bg/95 backdrop-blur-sm shadow-lg overflow-hidden">
-              {suggestions.map((s, i) => (
-                <button
-                  key={s.name}
-                  type="button"
-                  className={`w-full px-3 py-2 flex items-center justify-between text-left text-sm transition-colors ${
-                    i === highlightedIndex
-                      ? "bg-primary/10 text-primary"
-                      : "hover:bg-card-hover"
-                  }`}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    pickSuggestion(s.name);
-                  }}
-                  onMouseEnter={() => setHighlightedIndex(i)}
-                >
-                  <span className="font-medium">{s.name}</span>
-                  {s.emailCount != null && s.emailCount > 0 && (
-                    <span className="text-xs text-text-muted bg-card-hover px-2 py-0.5 rounded-full ml-3">
-                      {s.emailCount} {s.emailCount === 1 ? "email" : "emails"}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+          {/* Loading indicator next to input */}
+          {suggestionsLoading && inputValue && (
+            <span className="absolute -right-6 top-1/2 -translate-y-1/2">
+              <Loader2 className="w-4 h-4 text-primary animate-spin" />
+            </span>
           )}
+
+          {/* Suggestions dropdown */}
+          <AnimatePresence>
+            {showDropdown && suggestions && suggestions.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                transition={{ duration: 0.15 }}
+                className="absolute z-50 top-full left-0 mt-2 w-[340px] rounded-xl border border-card-border bg-card shadow-xl overflow-hidden"
+              >
+                {/* Header */}
+                <div className="px-3 py-2 border-b border-card-border bg-card-hover/50">
+                  <p className="text-xs text-text-muted font-medium">
+                    {suggestions.length} patient{suggestions.length !== 1 ? "s" : ""} found
+                  </p>
+                </div>
+
+                {/* Patient list */}
+                <div className="max-h-[280px] overflow-y-auto">
+                  {suggestions.map((s, i) => (
+                    <motion.button
+                      key={s.id || s.name}
+                      type="button"
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.03, duration: 0.2 }}
+                      className={cn(
+                        "w-full px-3 py-2.5 flex items-center gap-3 text-left transition-colors cursor-pointer",
+                        i === highlightedIndex
+                          ? "bg-primary/10"
+                          : "hover:bg-card-hover"
+                      )}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        pickSuggestion(s.name);
+                      }}
+                      onMouseEnter={() => setHighlightedIndex(i)}
+                    >
+                      <InitialsAvatar name={s.name} />
+                      <div className="flex-1 min-w-0">
+                        <p className={cn(
+                          "text-sm font-medium truncate",
+                          i === highlightedIndex ? "text-primary" : "text-foreground"
+                        )}>
+                          {s.name}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {s.governmentId && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-card-hover border border-card-border text-text-muted">
+                              TC: {s.governmentId}
+                            </span>
+                          )}
+                          {s.gender && (
+                            <span className="text-[10px] text-text-muted">
+                              {s.gender === "Male" ? "E" : "K"}
+                            </span>
+                          )}
+                          {s.birthYear && (
+                            <span className="text-[10px] text-text-muted">
+                              {s.birthYear}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="flex items-center gap-1 text-[10px] text-text-muted">
+                          <Mail className="w-3 h-3" />
+                          {s.emailCount}
+                        </span>
+                        <span className="flex items-center gap-1 text-[10px] text-text-muted">
+                          <Activity className="w-3 h-3" />
+                          {s.metricCount}
+                        </span>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+
+                {/* Footer hint */}
+                <div className="px-3 py-2 border-t border-card-border bg-card-hover/30">
+                  <p className="text-[10px] text-text-faint">
+                    <kbd className="px-1 py-0.5 rounded border border-card-border bg-card text-text-muted">↑↓</kbd> navigate
+                    {" "}
+                    <kbd className="px-1 py-0.5 rounded border border-card-border bg-card text-text-muted">Enter</kbd> select
+                    {" "}
+                    <kbd className="px-1 py-0.5 rounded border border-card-border bg-card text-text-muted">Esc</kbd> close
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.span>
       ) : (
         <motion.span

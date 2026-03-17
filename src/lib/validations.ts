@@ -23,8 +23,10 @@ export const generateReportSchema = z.object({
   patientId: z.string().min(1),
   emailIds: z.array(z.string()).min(1),
   title: z.string().optional(),
-  reportType: z.enum(["all emails", "detailed report", "comparison"]).optional(),
+  reportType: z.enum(["all emails", "detailed report", "comparison", "plain PDF"]).optional(),
   format: z.enum(["summary", "detailed", "graphical"]).optional(),
+  comparisonDateA: z.string().datetime().optional(),
+  comparisonDateB: z.string().datetime().optional(),
 });
 
 export const reportIdSchema = z.object({
@@ -56,8 +58,28 @@ export const userSettingsUpdateSchema = z.object({
   reportDetailLevel: z.enum(["summary", "detailed", "graphical"]).optional(),
   customSystemPrompt: z.string().max(2000).nullable().optional(),
   autoClassify: z.boolean().optional(),
+  emailNotifications: z.boolean().optional(),
   displayName: z.string().max(100).nullable().optional(),
   theme: z.enum(["light", "dark", "system"]).optional(),
+});
+
+export const batchReportSchema = z.object({
+  patientIds: z.array(z.string().min(1)).min(1).max(20),
+  reportType: z.enum(["all emails", "detailed report", "comparison"]).optional(),
+  format: z.enum(["summary", "detailed", "graphical"]).optional(),
+});
+
+export const progressiveSearchSchema = z.object({
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().optional(),
+  year: z.coerce.number().int().min(2000).max(2040).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  labCode: z.string().optional(),
+  gender: z.enum(["Male", "Female"]).optional(),
+  birthYear: z.coerce.number().int().min(1920).max(2025).optional(),
+  metricName: z.string().optional(),
+  operator: z.enum(["lt", "gt", "lte", "gte", "eq"]).optional(),
+  metricValue: z.coerce.number().optional(),
 });
 
 // --- Helpers ---

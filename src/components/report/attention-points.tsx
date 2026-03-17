@@ -11,7 +11,13 @@ import type { AttentionVariant } from "@/config/report-layouts";
 interface AttentionPointsProps {
   points: AttentionPoint[];
   variant?: AttentionVariant;
+  language?: string;
 }
+
+const severityLabels: Record<string, Record<string, string>> = {
+  en: { high: "high", medium: "medium", low: "low" },
+  tr: { high: "yüksek", medium: "orta", low: "düşük" },
+};
 
 const severityConfig = {
   high: {
@@ -40,33 +46,39 @@ const severityConfig = {
   },
 };
 
-export function AttentionPoints({ points, variant = "default" }: AttentionPointsProps) {
-  if (variant === "compact") return <CompactAttention points={points} />;
-  if (variant === "list") return <ListAttention points={points} />;
-  if (variant === "badges") return <BadgesAttention points={points} />;
-  if (variant === "grid") return <GridAttention points={points} />;
-  return <DefaultAttention points={points} />;
+export function AttentionPoints({ points, variant = "default", language = "en" }: AttentionPointsProps) {
+  if (variant === "compact") return <CompactAttention points={points} language={language} />;
+  if (variant === "list") return <ListAttention points={points} language={language} />;
+  if (variant === "badges") return <BadgesAttention points={points} language={language} />;
+  if (variant === "grid") return <GridAttention points={points} language={language} />;
+  return <DefaultAttention points={points} language={language} />;
 }
 
 // ── Section header ────────────────────────────────────────
 
-function AttentionHeader() {
+function AttentionHeader({ language = "en" }: { language?: string }) {
   return (
     <div className="flex items-center gap-3 mb-4">
       <div className="p-2 rounded-xl bg-severity-medium/10">
         <AlertTriangle className="w-5 h-5 text-severity-medium" />
       </div>
-      <h2 className="text-xl font-bold">Key Attention Points</h2>
+      <h2 className="text-xl font-bold">
+        {language === "tr" ? "Dikkat Edilmesi Gereken Noktalar" : "Key Attention Points"}
+      </h2>
     </div>
   );
 }
 
+function getSeverityLabel(severity: string, language: string): string {
+  return severityLabels[language]?.[severity] ?? severity;
+}
+
 // ── default ───────────────────────────────────────────────
 
-function DefaultAttention({ points }: { points: AttentionPoint[] }) {
+function DefaultAttention({ points, language = "en" }: { points: AttentionPoint[]; language?: string }) {
   return (
     <section id="attention">
-      <AttentionHeader />
+      <AttentionHeader language={language} />
       <div className="space-y-3">
         {points.map((point, i) => {
           const config = severityConfig[point.severity];
@@ -93,7 +105,7 @@ function DefaultAttention({ points }: { points: AttentionPoint[] }) {
                           config.badge
                         )}
                       >
-                        {point.severity}
+                        {getSeverityLabel(point.severity, language)}
                       </span>
                     </div>
                     <p className="text-sm text-text-secondary mb-3">
@@ -139,7 +151,7 @@ function DefaultAttention({ points }: { points: AttentionPoint[] }) {
 
 // ── compact ───────────────────────────────────────────────
 
-function CompactAttention({ points }: { points: AttentionPoint[] }) {
+function CompactAttention({ points, language = "en" }: { points: AttentionPoint[]; language?: string }) {
   const filtered = points.filter(
     (p) => p.severity === "high" || p.severity === "medium"
   );
@@ -147,7 +159,7 @@ function CompactAttention({ points }: { points: AttentionPoint[] }) {
 
   return (
     <section id="attention">
-      <AttentionHeader />
+      <AttentionHeader language={language} />
       <div className="space-y-2">
         {filtered.map((point, i) => {
           const config = severityConfig[point.severity];
@@ -172,7 +184,7 @@ function CompactAttention({ points }: { points: AttentionPoint[] }) {
                   config.badge
                 )}
               >
-                {point.severity}
+                {getSeverityLabel(point.severity, language)}
               </span>
               {point.recommendations[0] && (
                 <span className="text-xs text-text-muted truncate max-w-[200px] hidden md:inline">
@@ -189,12 +201,12 @@ function CompactAttention({ points }: { points: AttentionPoint[] }) {
 
 // ── list ──────────────────────────────────────────────────
 
-function ListAttention({ points }: { points: AttentionPoint[] }) {
+function ListAttention({ points, language = "en" }: { points: AttentionPoint[]; language?: string }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   return (
     <section id="attention">
-      <AttentionHeader />
+      <AttentionHeader language={language} />
       <GlassCard className="p-5">
         <ul className="space-y-3">
           {points.map((point, i) => {
@@ -246,13 +258,13 @@ function ListAttention({ points }: { points: AttentionPoint[] }) {
 
 // ── badges ────────────────────────────────────────────────
 
-function BadgesAttention({ points }: { points: AttentionPoint[] }) {
+function BadgesAttention({ points, language = "en" }: { points: AttentionPoint[]; language?: string }) {
   const highOnly = points.filter((p) => p.severity === "high");
   if (highOnly.length === 0) return null;
 
   return (
     <section id="attention">
-      <AttentionHeader />
+      <AttentionHeader language={language} />
       <div className="flex flex-wrap gap-2">
         {highOnly.map((point, i) => {
           const config = severityConfig[point.severity];
@@ -276,10 +288,10 @@ function BadgesAttention({ points }: { points: AttentionPoint[] }) {
 
 // ── grid ──────────────────────────────────────────────────
 
-function GridAttention({ points }: { points: AttentionPoint[] }) {
+function GridAttention({ points, language = "en" }: { points: AttentionPoint[]; language?: string }) {
   return (
     <section id="attention">
-      <AttentionHeader />
+      <AttentionHeader language={language} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {points.map((point, i) => {
           const config = severityConfig[point.severity];
@@ -306,7 +318,7 @@ function GridAttention({ points }: { points: AttentionPoint[] }) {
                           config.badge
                         )}
                       >
-                        {point.severity}
+                        {getSeverityLabel(point.severity, language)}
                       </span>
                     </div>
                     <p className="text-xs text-text-secondary mb-2">

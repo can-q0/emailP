@@ -46,6 +46,32 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
+/* Shimmer animation for skeletons */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@utility animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+  background-image: linear-gradient(
+    90deg,
+    var(--card-border) 0%,
+    var(--card-hover) 40%,
+    var(--card-border) 80%
+  );
+}
+
+/* Floating animation for empty states */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@utility animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

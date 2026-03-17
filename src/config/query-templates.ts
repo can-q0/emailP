@@ -7,7 +7,7 @@ export const defaultQueryTemplate: QueryTemplate = {
     {
       type: "choice",
       id: "reportType",
-      options: ["all emails", "detailed report", "comparison"],
+      options: ["all emails", "detailed report", "comparison", "plain PDF"],
       kind: "choice",
     },
     { type: "text", value: " for patient " },

@@ -105,6 +105,32 @@ const layoutMap: Record<LayoutKey, LayoutConfig> = {
     ],
   },
 
+  // ── plain PDF ──────────────────────────────────────────
+  [key("plain PDF", "summary")]: {
+    structure: "single-column",
+    spacing: "normal",
+    showSidebarNav: false,
+    sections: [
+      { id: "emails", label: "Emails", variant: "detailed" },
+    ],
+  },
+  [key("plain PDF", "detailed")]: {
+    structure: "single-column",
+    spacing: "normal",
+    showSidebarNav: false,
+    sections: [
+      { id: "emails", label: "Emails", variant: "detailed" },
+    ],
+  },
+  [key("plain PDF", "graphical")]: {
+    structure: "single-column",
+    spacing: "normal",
+    showSidebarNav: false,
+    sections: [
+      { id: "emails", label: "Emails", variant: "detailed" },
+    ],
+  },
+
   // ── comparison ──────────────────────────────────────────
   [key("comparison", "summary")]: {
     structure: "single-column",

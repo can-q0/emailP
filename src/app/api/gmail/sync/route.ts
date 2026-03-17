@@ -20,6 +20,7 @@ import { prisma } from "@/lib/prisma";
 import { parseBody, gmailSyncSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { extractPdfText } from "@/lib/pdf";
+import { saveEmailPdf } from "@/lib/pdf-storage";
 import { pLimit } from "@/lib/concurrency";
 
 export async function POST(req: NextRequest) {
@@ -93,14 +94,14 @@ export async function POST(req: NextRequest) {
       const patient = await prisma.patient.upsert({
         where: {
           governmentId_userId: {
-            governmentId: `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+            governmentId: `pending_${patientName.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`,
             userId,
           },
         },
         update: {},
         create: {
           name: patientName,
-          governmentId: `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+          governmentId: `pending_${patientName.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`,
           userId,
         },
       });
@@ -116,8 +117,9 @@ export async function POST(req: NextRequest) {
       const meta = extractMessageMeta(message);
       const { text, html } = extractBody(message);
 
-      // Extract PDF text from attachment
+      // Extract PDF text from attachment and cache PDFs
       let pdfText = "";
+      let savedPdfPath: string | null = null;
       const pdfParts = findPdfParts(message);
       for (const part of pdfParts) {
         try {
@@ -131,6 +133,16 @@ export async function POST(req: NextRequest) {
           }
           const buffer = decodeBase64UrlToBuffer(raw);
           pdfText += await extractPdfText(buffer) + "\n";
+
+          // Cache the first PDF to disk
+          if (!savedPdfPath) {
+            try {
+              const filename = part.filename || `${message.id}.pdf`;
+              savedPdfPath = await saveEmailPdf(userId, message.id!, filename, buffer);
+            } catch (cacheErr) {
+              console.error("PDF cache error for message", message.id, cacheErr);
+            }
+          }
         } catch (err) {
           console.error("PDF parse error for message", message.id, err);
         }
@@ -176,7 +188,7 @@ export async function POST(req: NextRequest) {
           })
         : null;
 
-      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate };
+      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath };
     };
 
     // Process all messages in parallel (concurrency=5)
@@ -190,7 +202,7 @@ export async function POST(req: NextRequest) {
         console.error("Message processing failed:", result.reason);
         continue;
       }
-      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate } = result.value;
+      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath } = result.value;
 
       if (reExtractIdSet.has(message.id!)) {
         const existingEmail = existingMap.get(message.id!)!;
@@ -203,6 +215,7 @@ export async function POST(req: NextRequest) {
             extractedData,
             date: emailDate ?? undefined,
             patientId: patientId ?? undefined,
+            pdfPath: savedPdfPath ?? undefined,
           },
         });
         const updated = await prisma.email.findUnique({ where: { id: existingEmail.id } });
@@ -216,6 +229,7 @@ export async function POST(req: NextRequest) {
             htmlBody: html,
             isLabReport,
             extractedData,
+            pdfPath: savedPdfPath,
             userId,
             patientId: patientId ?? null,
           },

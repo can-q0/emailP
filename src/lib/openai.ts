@@ -247,7 +247,7 @@ Only include metrics that have clear numeric values. Do not guess or infer missi
           },
           {
             role: "user",
-            content: emailBody.slice(0, 12000),
+            content: emailBody.slice(0, 6000),
           },
         ],
       });
@@ -259,47 +259,156 @@ Only include metrics that have clear numeric values. Do not guess or infer missi
   );
 }
 
+type MetricResult = Array<{
+  metricName: string;
+  value: number;
+  unit: string;
+  referenceMin?: number;
+  referenceMax?: number;
+  isAbnormal: boolean;
+}>;
+
+const METRICS_BATCH_SIZE = 8;
+
+async function extractBloodMetricsChunk(
+  emails: Array<{ id: string; body: string }>
+): Promise<Map<string, MetricResult>> {
+  const emailList = emails
+    .map(
+      (e, i) =>
+        `--- EMAIL ${i} (id: ${e.id}) ---\n${e.body.slice(0, 6000)}`
+    )
+    .join("\n\n");
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-5-mini",
+    temperature: 0.0,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: `You are a medical data extractor specializing in blood test results. You will receive multiple emails at once. Extract all blood test metrics from each email. The content may be in Turkish — translate all metric names to standardized English.
+
+Metric name standardization — always use these canonical names:
+- HGB/Hb → "Hemoglobin"
+- HCT/Htc → "Hematocrit"
+- WBC/Lökosit → "White Blood Cell Count"
+- RBC/Eritrosit → "Red Blood Cell Count"
+- PLT/Trombosit → "Platelet Count"
+- MCV → "Mean Corpuscular Volume"
+- MCH → "Mean Corpuscular Hemoglobin"
+- MCHC → "Mean Corpuscular Hemoglobin Concentration"
+- RDW → "Red Cell Distribution Width"
+- MPV → "Mean Platelet Volume"
+- GLU/Glikoz/Açlık Kan Şekeri → "Glucose"
+- BUN/Üre → "Blood Urea Nitrogen"
+- CRE/Kreatinin → "Creatinine"
+- ALT/SGPT → "Alanine Aminotransferase"
+- AST/SGOT → "Aspartate Aminotransferase"
+- GGT → "Gamma-Glutamyl Transferase"
+- ALP → "Alkaline Phosphatase"
+- T.BIL/Total Bilirubin → "Total Bilirubin"
+- D.BIL/Direkt Bilirubin → "Direct Bilirubin"
+- T.Protein/Total Protein → "Total Protein"
+- ALB/Albümin → "Albumin"
+- TC/Total Kolesterol → "Total Cholesterol"
+- HDL → "HDL Cholesterol"
+- LDL → "LDL Cholesterol"
+- TG/Trigliserit → "Triglycerides"
+- TSH → "Thyroid Stimulating Hormone"
+- FT3/sT3 → "Free T3"
+- FT4/sT4 → "Free T4"
+- Fe/Demir → "Iron"
+- TIBC → "Total Iron Binding Capacity"
+- Ferritin/Ferritin → "Ferritin"
+- B12/Vitamin B12 → "Vitamin B12"
+- Folat/Folik Asit → "Folate"
+- D Vitamini/25-OH Vitamin D → "Vitamin D"
+- CRP → "C-Reactive Protein"
+- Sedimantasyon/ESR → "Erythrocyte Sedimentation Rate"
+- HbA1c → "Hemoglobin A1c"
+- Na/Sodyum → "Sodium"
+- K/Potasyum → "Potassium"
+- Ca/Kalsiyum → "Calcium"
+- Mg/Magnezyum → "Magnesium"
+- P/Fosfor → "Phosphorus"
+- Ürik Asit → "Uric Acid"
+- PSA → "Prostate-Specific Antigen"
+
+Unit normalization:
+- Always use g/dL for hemoglobin (convert g/L by dividing by 10)
+- Always use mg/dL for glucose, cholesterol, triglycerides, creatinine, BUN, uric acid
+- Always use U/L for liver enzymes (ALT, AST, GGT, ALP)
+- Always use cells/μL or ×10³/μL for blood cell counts
+- Always use mIU/L for TSH
+- Always use ng/mL for ferritin, Vitamin D, Vitamin B12, PSA
+- Always use mmol/L for sodium, potassium, calcium, magnesium
+
+If duplicate metrics appear in the same email, include only the most recent value.
+
+Return JSON with a "results" object keyed by email id. Each value is an array of metric objects with:
+- metricName: string (standardized English name)
+- value: number
+- unit: string (normalized unit)
+- referenceMin: number or null
+- referenceMax: number or null
+- isAbnormal: boolean (true if outside reference range)
+
+Only include metrics that have clear numeric values.`,
+      },
+      {
+        role: "user",
+        content: emailList,
+      },
+    ],
+  });
+
+  const parsed = JSON.parse(response.choices[0].message.content || "{}");
+  const map = new Map<string, MetricResult>();
+
+  const resultsObj = parsed.results || parsed;
+  for (const email of emails) {
+    const entry = resultsObj[email.id];
+    if (entry) {
+      map.set(email.id, Array.isArray(entry) ? entry : entry.metrics || []);
+    }
+  }
+
+  return map;
+}
+
 export async function extractBloodMetricsBatch(
   emails: Array<{ id: string; body: string }>,
-  model: string = "gpt-5"
-): Promise<
-  Map<
-    string,
-    Array<{
-      metricName: string;
-      value: number;
-      unit: string;
-      referenceMin?: number;
-      referenceMax?: number;
-      isAbnormal: boolean;
-    }>
-  >
-> {
-  const results = new Map<
-    string,
-    Array<{
-      metricName: string;
-      value: number;
-      unit: string;
-      referenceMin?: number;
-      referenceMax?: number;
-      isAbnormal: boolean;
-    }>
-  >();
+  _model?: string
+): Promise<Map<string, MetricResult>> {
+  // Single email — use the direct function (still useful for one-off calls)
+  if (emails.length === 1) {
+    const metrics = await extractBloodMetrics(emails[0].body);
+    const map = new Map<string, MetricResult>();
+    map.set(emails[0].id, metrics);
+    return map;
+  }
 
-  const promises = emails.map((email) =>
-    limit(async () => {
-      const metrics = await extractBloodMetrics(email.body, model);
-      return { id: email.id, metrics };
-    })
+  const results = new Map<string, MetricResult>();
+
+  // Split into chunks of METRICS_BATCH_SIZE
+  const chunks: Array<typeof emails> = [];
+  for (let i = 0; i < emails.length; i += METRICS_BATCH_SIZE) {
+    chunks.push(emails.slice(i, i + METRICS_BATCH_SIZE));
+  }
+
+  const promises = chunks.map((chunk) =>
+    limit(() => withRetry(() => extractBloodMetricsChunk(chunk), { attempts: 3, label: "extractBloodMetricsChunk" }))
   );
 
   const settled = await Promise.allSettled(promises);
   for (const result of settled) {
     if (result.status === "fulfilled") {
-      results.set(result.value.id, result.value.metrics);
+      for (const [id, metrics] of result.value) {
+        results.set(id, metrics);
+      }
     } else {
-      console.error("[extractBloodMetricsBatch] partial failure:", result.reason);
+      console.error("[extractBloodMetricsBatch] chunk failure:", result.reason);
     }
   }
 
@@ -333,8 +442,9 @@ function buildSummaryPrompt(
 - This is an inventory-style report — completeness is more important than deep analysis.`;
   } else if (reportType === "comparison") {
     reportTypeInstructions = `Report type: COMPARISON across time points.
-- Structure the summary as a comparison table/analysis between the earliest and most recent results.
-- For each metric that appears in multiple tests, show: earliest value → latest value, and the direction of change (improved/worsened/stable) with percentage change.
+- Structure the summary as a comparison table/analysis between the selected test dates.
+- The user may have selected specific dates for comparison — focus your analysis on those dates' results.
+- For each metric that appears in multiple tests, show: earlier value → later value, and the direction of change (improved/worsened/stable) with percentage change.
 - Group comparisons by body system.
 - Highlight metrics with the most significant changes (both improvements and deteriorations).
 - End with a 1-paragraph overall trajectory assessment.`;
@@ -376,7 +486,13 @@ ${reportTypeInstructions}
 ${formatInstructions}
 
 General guidelines:
-- Be professional, factual, and write in ${language === "tr" ? "Turkish" : "English"}.
+${language === "tr" ? `- Write the ENTIRE report in formal medical Turkish (hekim/uzman dili).
+- Use Turkish medical terminology throughout: hasta (patient), değer (value), referans aralığı (reference range), yüksek/düşük (high/low), anormal (abnormal), patolojik (pathological), normal sınırlar içinde (within normal limits).
+- Body system section names in Turkish: Hematoloji, Biyokimya, Karaciğer Fonksiyonları, Lipit Profili, Tiroit Fonksiyonları, Vitaminler, Demir Paneli, Diyabet, İnflamasyon Belirteçleri.
+- Use Turkish metric equivalents: Lökosit (WBC), Eritrosit (RBC), Trombosit (PLT), Hemoglobin, Hematokrit, Açlık Kan Şekeri (Glucose), Üre (BUN), Kreatinin, Sodyum, Potasyum, Kalsiyum, Demir, Ferritin, D Vitamini, B12 Vitamini, Sedimentasyon (ESR), Serbest T3/T4, Total Kolesterol, Trigliserit.
+- Format dates as DD.MM.YYYY and use decimal commas (e.g., 12,5 g/dL) where appropriate.
+- Use professional physician-audience tone.` : `- Write in English.`}
+- Be professional, factual.
 - Do NOT provide diagnoses. Frame findings as observations for physician review.
 
 Attention points guidelines:
@@ -413,6 +529,15 @@ export async function generateSummaryAndAttentionPoints(
     model?: string;
     language?: string;
     customSystemPrompt?: string | null;
+    trendAlerts?: Array<{
+      metricName: string;
+      displayName: string;
+      direction: string;
+      severity: string;
+      type: string;
+      description: string;
+      percentChange?: number;
+    }>;
   }
 ): Promise<{
   summary: string;
@@ -433,6 +558,16 @@ export async function generateSummaryAndAttentionPoints(
         options?.customSystemPrompt
       );
 
+      let userContent = `Patient: ${patientName}\n\nLab results:\n${emailSummaries.join("\n---\n")}\n\nExtracted metrics:\n${JSON.stringify(metrics, null, 2)}`;
+
+      // Append detected trend alerts for richer AI analysis
+      if (options?.trendAlerts && options.trendAlerts.length > 0) {
+        const trendSection = options.trendAlerts.map((t) =>
+          `- [${t.severity.toUpperCase()}] ${t.displayName}: ${t.description}${t.percentChange ? ` (${t.percentChange > 0 ? "+" : ""}${t.percentChange.toFixed(1)}%)` : ""}`
+        ).join("\n");
+        userContent += `\n\nDetected trends (use these for deeper analysis):\n${trendSection}`;
+      }
+
       const response = await openai.chat.completions.create({
         model: options?.model || "gpt-5",
         response_format: { type: "json_object" },
@@ -443,7 +578,7 @@ export async function generateSummaryAndAttentionPoints(
           },
           {
             role: "user",
-            content: `Patient: ${patientName}\n\nLab results:\n${emailSummaries.join("\n---\n")}\n\nExtracted metrics:\n${JSON.stringify(metrics, null, 2)}`,
+            content: userContent,
           },
         ],
       });

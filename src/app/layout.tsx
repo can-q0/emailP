@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "@/components/theme-provider";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { auth } from "@/auth";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const inter = Inter({
@@ -49,7 +51,21 @@ export default async function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased min-h-screen bg-background text-foreground`}
       >
         <SessionProvider session={session}>
-          <ThemeProvider>{children}</ThemeProvider>
+          <ThemeProvider>
+            <OnboardingProvider>
+            {children}
+            </OnboardingProvider>
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                style: {
+                  background: "var(--card)",
+                  border: "1px solid var(--card-border)",
+                  color: "var(--foreground)",
+                },
+              }}
+            />
+          </ThemeProvider>
         </SessionProvider>
       </body>
     </html>

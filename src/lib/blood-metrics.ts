@@ -1,4 +1,5 @@
-import { bloodMetricReferences, MetricReference } from "@/config/blood-metrics";
+import { bloodMetricReferences, MetricReference, AgeGenderRange } from "@/config/blood-metrics";
+import { trLower } from "@/lib/turkish";
 
 // Normalize metric names to match our reference keys
 const nameMap: Record<string, string> = {
@@ -88,7 +89,7 @@ const nameMap: Record<string, string> = {
 };
 
 export function normalizeMetricName(name: string): string {
-  const lower = name.toLowerCase().trim();
+  const lower = trLower(name).trim();
   return nameMap[lower] || lower;
 }
 
@@ -107,3 +108,74 @@ export function isMetricAbnormal(
   if (!ref) return false;
   return value < ref.min || value > ref.max;
 }
+
+/**
+ * Get age/gender-adjusted reference range for a metric.
+ * Priority: gender+age match > gender-only match > age-only match > default.
+ */
+export function getAdjustedRange(
+  metricName: string,
+  age?: number | null,
+  gender?: string | null
+): { min: number; max: number } | undefined {
+  const ref = getMetricReference(metricName);
+  if (!ref) return undefined;
+
+  if (!ref.ranges || ref.ranges.length === 0) {
+    return { min: ref.min, max: ref.max };
+  }
+
+  let bestMatch: AgeGenderRange | undefined;
+  let bestScore = -1;
+
+  for (const r of ref.ranges) {
+    let score = 0;
+    let matches = true;
+
+    // Check gender match
+    if (r.gender) {
+      if (gender && r.gender === gender) {
+        score += 2;
+      } else if (gender && r.gender !== gender) {
+        matches = false;
+      } else {
+        // No gender provided, skip gender-specific ranges
+        matches = false;
+      }
+    }
+
+    // Check age match
+    if (r.ageMin !== undefined || r.ageMax !== undefined) {
+      if (age != null) {
+        if (r.ageMin !== undefined && age < r.ageMin) matches = false;
+        if (r.ageMax !== undefined && age > r.ageMax) matches = false;
+        if (matches) score += 1;
+      } else {
+        // No age provided, skip age-specific ranges
+        matches = false;
+      }
+    }
+
+    if (matches && score > bestScore) {
+      bestScore = score;
+      bestMatch = r;
+    }
+  }
+
+  if (bestMatch) {
+    return { min: bestMatch.min, max: bestMatch.max };
+  }
+  return { min: ref.min, max: ref.max };
+}
+
+export function isMetricAbnormalAdjusted(
+  value: number,
+  metricName: string,
+  age?: number | null,
+  gender?: string | null
+): boolean {
+  const range = getAdjustedRange(metricName, age, gender);
+  if (!range) return false;
+  return value < range.min || value > range.max;
+}
+

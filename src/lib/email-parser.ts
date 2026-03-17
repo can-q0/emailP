@@ -124,7 +124,7 @@ export function parseLabSubject(subject: string): {
     patientName,
     date: isNaN(date.getTime()) ? null : date,
     birthYear: birthYear ? parseInt(birthYear) : null,
-    gender: gender ? (gender.toUpperCase() === "E" ? "Male" : "Female") : null,
+    gender: gender ? (gender.toLocaleUpperCase("tr-TR") === "E" ? "Male" : "Female") : null,
   };
 }
 
@@ -149,7 +149,7 @@ export function parseTurkishDate(dateStr: string): Date | null {
   );
   if (turkishMatch) {
     const [, day, monthStr, year, hours, minutes] = turkishMatch;
-    const monthKey = monthStr.toLowerCase().slice(0, 3);
+    const monthKey = monthStr.toLocaleLowerCase("tr-TR").slice(0, 3);
     const monthIdx = TURKISH_MONTHS[monthKey];
     if (monthIdx !== undefined) {
       const d = new Date(parseInt(year), monthIdx, parseInt(day),
@@ -226,7 +226,7 @@ export function parseForwardingHeaders(bodyText: string): ForwardedMessageInfo |
     // Parse "Key: Value" or "Key : Value"
     const kvMatch = trimmed.match(/^([A-Za-zÇçĞğİıÖöŞşÜü]+)\s*:\s*(.+)/);
     if (kvMatch) {
-      const key = kvMatch[1].toLowerCase();
+      const key = kvMatch[1].toLocaleLowerCase("tr-TR");
       const value = kvMatch[2].trim();
       const mapped = KEY_MAP[key];
       if (mapped) {
@@ -300,7 +300,7 @@ export function parsePdfMetadata(pdfText: string): PdfLabMetadata {
   // Gender
   const genderMatch = pdfText.match(/Cinsiyet\s*:\s*(\S+)/i);
   if (genderMatch) {
-    const val = genderMatch[1].trim().toUpperCase();
+    const val = genderMatch[1].trim().toLocaleUpperCase("tr-TR");
     if (val === "ERKEK" || val === "E") result.gender = "Male";
     else if (val === "KADIN" || val === "K" || val === "KADIN") result.gender = "Female";
   }

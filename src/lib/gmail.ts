@@ -113,7 +113,7 @@ function getHeader(
   name: string
 ): string | undefined {
   return headers?.find(
-    (h) => h.name?.toLowerCase() === name.toLowerCase()
+    (h) => h.name?.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR")
   )?.value ?? undefined;
 }
 

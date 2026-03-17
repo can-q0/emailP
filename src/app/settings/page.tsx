@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
-import { Settings, Brain, Mail, User, ArrowLeft, Bell } from "lucide-react";
+import { Settings, Brain, Mail, User, ArrowLeft, Bell, GraduationCap } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 interface UserSettings {
   aiModel: string;
@@ -50,10 +51,12 @@ export default function SettingsPage() {
   const { status } = useSession();
   const router = useRouter();
   const { setTheme } = useTheme();
+  const { resetOnboarding } = useOnboarding();
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -152,6 +155,36 @@ export default function SettingsPage() {
         <Settings className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-semibold">Settings</h1>
       </div>
+
+      {/* Tutorial / Onboarding */}
+      <GlassCard className="p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/10">
+              <GraduationCap className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold">Egitici Tur</h2>
+              <p className="text-xs text-text-muted">
+                Uygulamanin nasil kullanildigini adim adim ogrenin
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={resetting}
+            onClick={async () => {
+              setResetting(true);
+              await resetOnboarding();
+              router.push("/dashboard");
+            }}
+          >
+            <GraduationCap className="w-4 h-4 mr-1.5" />
+            {resetting ? "Hazirlaniyor..." : "Turu Baslat"}
+          </Button>
+        </div>
+      </GlassCard>
 
       {/* AI Preferences */}
       <GlassCard className="p-6 space-y-5">

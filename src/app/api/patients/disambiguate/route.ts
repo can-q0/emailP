@@ -28,14 +28,14 @@ export async function POST(req: NextRequest) {
     const patient = await prisma.patient.upsert({
       where: {
         governmentId_userId: {
-          governmentId: governmentId || `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+          governmentId: governmentId || `pending_${patientName.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`,
           userId,
         },
       },
       update: { name: patientName },
       create: {
         name: patientName,
-        governmentId: governmentId || `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+        governmentId: governmentId || `pending_${patientName.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`,
         userId,
       },
     });
@@ -124,14 +124,14 @@ export async function POST(req: NextRequest) {
     const patient = await prisma.patient.upsert({
       where: {
         governmentId_userId: {
-          governmentId: `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+          governmentId: `pending_${patientName.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`,
           userId,
         },
       },
       update: {},
       create: {
         name: patientName,
-        governmentId: `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+        governmentId: `pending_${patientName.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`,
         userId,
       },
     });
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
     const patient = await prisma.patient.create({
       data: {
         name: c.name,
-        governmentId: c.governmentId || `pending_${patientName.toLowerCase().replace(/\s+/g, "_")}`,
+        governmentId: c.governmentId || `pending_${patientName.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`,
         userId,
       },
     });

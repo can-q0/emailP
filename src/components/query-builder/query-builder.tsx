@@ -34,7 +34,7 @@ export function QueryBuilder({
   } = useQueryBuilder(template);
 
   const [patientInput, setPatientInput] = useState("");
-  const { suggestions: patientSuggestions } = usePatientSuggestions(patientInput);
+  const { suggestions: patientSuggestions, isLoading: suggestionsLoading } = usePatientSuggestions(patientInput);
 
   const hasStarted = useRef(false);
 
@@ -106,6 +106,7 @@ export function QueryBuilder({
                 onSubmit={(val) => fillValue(segment.id, val)}
                 suggestions={isPatientName ? patientSuggestions : undefined}
                 onInputChange={isPatientName ? setPatientInput : undefined}
+                suggestionsLoading={isPatientName ? suggestionsLoading : undefined}
               />
             );
           }
