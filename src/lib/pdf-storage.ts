@@ -4,6 +4,7 @@ import path from "path";
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "pdfs");
 const EMAIL_PDF_DIR = path.join(process.cwd(), "storage", "pdfs");
+const EMAIL_EML_DIR = path.join(process.cwd(), "storage", "emails");
 
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
@@ -30,6 +31,29 @@ export async function saveEmailPdf(
 }
 
 export async function readEmailPdf(relativePath: string): Promise<Buffer | null> {
+  try {
+    const fullPath = path.join(process.cwd(), relativePath);
+    return await fs.readFile(fullPath);
+  } catch {
+    return null;
+  }
+}
+
+// ── Email .eml storage ──────────────────────────────────
+
+export async function saveEmailEml(
+  userId: string,
+  emailId: string,
+  buffer: Buffer
+): Promise<string> {
+  const dir = path.join(EMAIL_EML_DIR, userId);
+  await ensureDir(dir);
+  const filePath = path.join(dir, `${sanitizeFilename(emailId)}.eml`);
+  await fs.writeFile(filePath, buffer);
+  return path.relative(process.cwd(), filePath);
+}
+
+export async function readEmailEml(relativePath: string): Promise<Buffer | null> {
   try {
     const fullPath = path.join(process.cwd(), relativePath);
     return await fs.readFile(fullPath);

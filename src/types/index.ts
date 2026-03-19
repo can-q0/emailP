@@ -29,6 +29,7 @@ export interface BloodMetricData {
   referenceMin?: number;
   referenceMax?: number;
   isAbnormal: boolean;
+  confidence?: "high" | "medium" | "low";
   measuredAt: string;
 }
 
@@ -52,10 +53,19 @@ export interface TrendAlert {
   displayName: string;
   direction: "worsening" | "improving";
   severity: "high" | "medium" | "low";
-  type: "consecutive_worsening" | "rapid_change" | "persistent_abnormal";
+  type: "consecutive_worsening" | "rapid_change" | "persistent_abnormal" | "linear_trend" | "accelerating_change";
   description: string;
   readings: TrendReading[];
   percentChange?: number;
+  slope?: number;
+}
+
+export interface ClinicalCorrelation {
+  pattern: string;
+  severity: "high" | "medium" | "low";
+  description: string;
+  involvedMetrics: string[];
+  recommendation: string;
 }
 
 export interface ReportData {
@@ -64,6 +74,7 @@ export interface ReportData {
   summary?: string;
   attentionPoints?: AttentionPoint[];
   trendAlerts?: TrendAlert[];
+  clinicalCorrelations?: ClinicalCorrelation[];
   status: string;
   step?: string;
   reportType: string;
@@ -88,6 +99,7 @@ export interface EmailData {
   date?: string;
   snippet?: string;
   body?: string;
+  pdfPath?: string;
   isLabReport: boolean;
   extractedData?: Record<string, unknown>;
 }

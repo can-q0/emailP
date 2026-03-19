@@ -32,6 +32,7 @@ export interface MergePdfsPayload {
 
 const globalForBoss = globalThis as unknown as {
   pgBoss: PgBoss | undefined;
+  pgBossReady: boolean | undefined;
 };
 
 export function getBoss(): PgBoss {
@@ -42,20 +43,38 @@ export function getBoss(): PgBoss {
       retryBackoff: true,
       expireInHours: 1,
     });
+    globalForBoss.pgBossReady = false;
   }
   return globalForBoss.pgBoss;
+}
+
+/**
+ * Ensure pg-boss is started and workers are registered.
+ * Safe to call multiple times — idempotent.
+ */
+async function ensureReady(): Promise<PgBoss> {
+  const boss = getBoss();
+  if (!globalForBoss.pgBossReady) {
+    await boss.start();
+    // Dynamically import workers to avoid circular deps
+    const { registerWorkers } = await import("@/lib/workers");
+    await registerWorkers();
+    globalForBoss.pgBossReady = true;
+    console.log("[queue] pg-boss started + workers registered");
+  }
+  return boss;
 }
 
 export async function enqueueGenerateReport(
   payload: GenerateReportPayload
 ): Promise<string | null> {
-  const boss = getBoss();
+  const boss = await ensureReady();
   return boss.send("generate-report", payload);
 }
 
 export async function enqueueMergePdfs(
   payload: MergePdfsPayload
 ): Promise<string | null> {
-  const boss = getBoss();
+  const boss = await ensureReady();
   return boss.send("merge-pdfs", payload);
 }

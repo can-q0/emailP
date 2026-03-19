@@ -22,6 +22,7 @@ import {
   Trash2,
   Download,
   FileSpreadsheet,
+  Paperclip,
 } from "lucide-react";
 import { format as formatDate } from "date-fns";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
@@ -105,6 +106,7 @@ export default function ReportPage() {
         ...data,
         attentionPoints: data.attentionPoints || [],
         trendAlerts: data.trendAlerts || [],
+        clinicalCorrelations: data.clinicalCorrelations || [],
         bloodMetrics: data.bloodMetrics || [],
         emails: data.emails || [],
       });
@@ -118,13 +120,38 @@ export default function ReportPage() {
     fetchReport();
   }, [reportId, session, router]);
 
-  // Auto-start report tour on first report view
+  // Auto-refresh when report is partial (waiting for AI summary)
   useEffect(() => {
-    if (!loading && report && !completedTours.includes("report")) {
-      const timer = setTimeout(() => startTour("report"), 800);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, report, completedTours, startTour]);
+    if (!report || report.status !== "partial") return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/reports?id=${reportId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === "completed") {
+          setReport({
+            ...data,
+            attentionPoints: data.attentionPoints || [],
+            trendAlerts: data.trendAlerts || [],
+            clinicalCorrelations: data.clinicalCorrelations || [],
+            bloodMetrics: data.bloodMetrics || [],
+            emails: data.emails || [],
+          });
+          clearInterval(interval);
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [report?.status, reportId]);
+
+  // Report tour disabled — users find it intrusive
+  // To re-enable: uncomment and the tour will show on first report view
+  // useEffect(() => {
+  //   if (!loading && report && !completedTours.includes("report")) {
+  //     const timer = setTimeout(() => startTour("report"), 800);
+  //     return () => clearTimeout(timer);
+  //   }
+  // }, [loading, report, completedTours, startTour]);
 
   if (status === "loading" || loading || !session) {
     return (
@@ -216,6 +243,18 @@ export default function ReportPage() {
                   </Button>
                 )}
               </>
+            )}
+            {!isPlainPdf && report.emails.some((e: { pdfPath?: string }) => e.pdfPath) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  window.open(`/api/reports/merged-pdf?id=${reportId}`, "_blank");
+                }}
+              >
+                <Paperclip className="w-4 h-4 mr-1" />
+                Lab PDFs
+              </Button>
             )}
             <Button onClick={() => setShowSendModal(true)}>
               <Send className="w-4 h-4 mr-2" />

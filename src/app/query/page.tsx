@@ -24,21 +24,23 @@ import {
   Sparkles,
   ArrowRight,
   User,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { BarChart3, GitCompareArrows, Paperclip, LayoutList, Columns2, LayoutDashboard } from "lucide-react";
 
 const REPORT_TYPES = [
-  { value: "detailed report", label: "Detailed Report", icon: FileText, desc: "Full analysis with metrics" },
-  { value: "all emails", label: "All Emails", icon: Mail, desc: "Summary of all lab emails" },
-  { value: "comparison", label: "Comparison", icon: Activity, desc: "Compare two test dates" },
-  { value: "plain PDF", label: "Plain PDF", icon: FileText, desc: "Merge PDF attachments" },
+  { value: "detailed report", label: "Full Analysis", icon: BarChart3, desc: "AI summary + charts + attention points + emails", badge: "Recommended" },
+  { value: "all emails", label: "Email Focus", icon: Mail, desc: "Email list first, brief summary — no metric charts", badge: null },
+  { value: "comparison", label: "Date Compare", icon: GitCompareArrows, desc: "Pick 2 test dates — see delta % and trend arrows", badge: null },
+  { value: "plain PDF", label: "PDF Merge", icon: Paperclip, desc: "Download combined PDF — no AI processing", badge: "Fast" },
 ];
 
 const FORMATS = [
-  { value: "summary", label: "Summary" },
-  { value: "detailed", label: "Detailed" },
-  { value: "graphical", label: "Graphical" },
+  { value: "summary", label: "Compact", icon: LayoutList, desc: "Single column, mini charts" },
+  { value: "detailed", label: "Full Page", icon: Columns2, desc: "Sidebar nav, large charts" },
+  { value: "graphical", label: "Dashboard", icon: LayoutDashboard, desc: "Grid layout, sparklines" },
 ];
 
 function QueryPageContent() {
@@ -51,6 +53,28 @@ function QueryPageContent() {
   const { query, setQuery, tokenLabels, results, isLoading: searchLoading } = useProgressiveSearch();
   const hasQuery = query.trim().length > 0;
   const hasResults = results.patients.length > 0 || results.emails.length > 0;
+
+  // Email detail modal
+  const [selectedEmail, setSelectedEmail] = useState<{
+    id: string; subject?: string; from?: string; date?: string; body?: string; pdfPath?: string; patientName?: string;
+  } | null>(null);
+  const [loadingEmailId, setLoadingEmailId] = useState<string | null>(null);
+
+  const handleEmailClick = useCallback(async (emailId: string) => {
+    setLoadingEmailId(emailId);
+    try {
+      const res = await fetch(`/api/emails/${emailId}`);
+      if (res.ok) {
+        setSelectedEmail(await res.json());
+      } else {
+        toast.error("Email yüklenemedi.");
+      }
+    } catch {
+      toast.error("Bir hata oluştu.");
+    } finally {
+      setLoadingEmailId(null);
+    }
+  }, []);
 
   // Report config
   const [reportType, setReportType] = useState("detailed report");
@@ -118,36 +142,43 @@ function QueryPageContent() {
       return;
     }
 
-    // No patients but we have emails — fall back to Gmail sync
+    // No patients but we have emails — disambiguate using existing email IDs
     setStep("searching");
-    setProgress("Syncing emails from Gmail...");
+    setProgress("Resolving patient...");
     try {
       const name = query.trim().split(/\s+/).slice(0, 2).join(" ");
+
+      // Sync to create patient record (patientName triggers patient creation)
       const syncRes = await fetch("/api/gmail/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: name, patientName: name }),
       });
-      if (!syncRes.ok) throw new Error("Failed to sync");
-      const syncData = await syncRes.json();
-      if (syncData.total === 0) { setStep("no_results"); return; }
+      const syncData = syncRes.ok ? await syncRes.json() : null;
 
-      const syncEmailIds = syncData.emails.map((e: { id: string }) => e.id);
+      // Use email IDs from search results (already found) + any new ones from sync
+      const syncEmailIds = syncData?.emails?.map((e: { id: string }) => e.id) || [];
+      const allEmailIds = [...new Set([...emailIds, ...syncEmailIds])];
+
+      if (allEmailIds.length === 0) { setStep("no_results"); return; }
+
       const disambRes = await fetch("/api/patients/disambiguate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patientName: name, emailIds: syncEmailIds }),
+        body: JSON.stringify({ patientName: name, emailIds: allEmailIds }),
       });
       const disambData = await disambRes.json();
 
       if (disambData.needsDisambiguation) {
         setCandidates(disambData.candidates);
+        setPendingEmailIds(allEmailIds);
+        setPendingPatientName(name);
         setStep("disambiguate");
         return;
       }
       const patId = disambData.candidates[0]?.id;
       if (!patId) { toast.error("Patient not found."); setStep("query"); return; }
-      await proceedWithPatient(patId, syncEmailIds, name, reportType, format);
+      await proceedWithPatient(patId, allEmailIds, name, reportType, format);
     } catch {
       toast.error("An error occurred.");
       setStep("query");
@@ -232,9 +263,9 @@ function QueryPageContent() {
           const steps: Record<string, string> = { extracting_metrics: "Step 1/2: Extracting blood metrics...", generating_summary: "Step 2/2: Generating summary & analysis..." };
           setProgress(steps[report.step] || report.step);
         }
-        if (report.status === "completed" || report.status === "failed" || report.status === "no_results") {
+        if (report.status === "completed" || report.status === "partial" || report.status === "failed" || report.status === "no_results") {
           clearInterval(pollInterval);
-          if (report.status === "completed") router.push(`/report/${data.reportId}`);
+          if (report.status === "completed" || report.status === "partial") router.push(`/report/${data.reportId}`);
           else if (report.status === "no_results") setStep("no_results");
           else {
             setFailedReport({ reportId: data.reportId, patientId, emailIds, patientName: name, reportType: rType, format: fmt, errorMessage: report.step || "An unexpected error occurred." });
@@ -299,24 +330,39 @@ function QueryPageContent() {
                 <div className="flex-1 min-w-0">
                   {/* Report Type */}
                   <div className="mb-5">
-                    <p className="text-sm font-medium mb-2.5">Report Type</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <p className="text-sm font-medium mb-2.5">What to generate</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {REPORT_TYPES.map((t) => (
                         <motion.button
                           key={t.value}
                           whileTap={{ scale: 0.97 }}
                           onClick={() => setReportType(t.value)}
                           className={cn(
-                            "flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all cursor-pointer",
+                            "relative flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer",
                             reportType === t.value
                               ? "border-primary/40 bg-primary/5 ring-2 ring-primary/10"
                               : "border-card-border hover:border-card-border/80 bg-card"
                           )}
                         >
-                          <t.icon className={cn("w-4 h-4 shrink-0", reportType === t.value ? "text-primary" : "text-text-muted")} />
-                          <div>
-                            <p className={cn("text-xs font-medium", reportType === t.value ? "text-primary" : "text-foreground")}>{t.label}</p>
-                            <p className="text-[10px] text-text-muted mt-0.5">{t.desc}</p>
+                          <div className={cn(
+                            "p-2 rounded-lg shrink-0",
+                            reportType === t.value ? "bg-primary/10" : "bg-card-hover"
+                          )}>
+                            <t.icon className={cn("w-4 h-4", reportType === t.value ? "text-primary" : "text-text-muted")} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className={cn("text-sm font-medium", reportType === t.value ? "text-primary" : "text-foreground")}>{t.label}</p>
+                              {t.badge && (
+                                <span className={cn(
+                                  "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                                  t.badge === "Recommended" ? "bg-primary/10 text-primary" : "bg-emerald-500/10 text-emerald-600"
+                                )}>
+                                  {t.badge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">{t.desc}</p>
                           </div>
                         </motion.button>
                       ))}
@@ -332,21 +378,23 @@ function QueryPageContent() {
                         exit={{ opacity: 0, height: 0 }}
                         className="mb-6"
                       >
-                        <p className="text-sm font-medium mb-2.5">Format</p>
-                        <div className="flex gap-2">
+                        <p className="text-sm font-medium mb-2.5">Layout</p>
+                        <div className="grid grid-cols-3 gap-2">
                           {FORMATS.map((f) => (
                             <motion.button
                               key={f.value}
                               whileTap={{ scale: 0.95 }}
                               onClick={() => setFormat(f.value)}
                               className={cn(
-                                "px-4 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+                                "flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-all cursor-pointer",
                                 format === f.value
                                   ? "bg-primary text-white"
                                   : "border border-card-border text-text-secondary hover:border-foreground/20"
                               )}
                             >
-                              {f.label}
+                              <f.icon className={cn("w-4 h-4", format === f.value ? "text-white" : "text-text-muted")} />
+                              <span className="text-xs font-medium">{f.label}</span>
+                              <span className={cn("text-[10px] leading-tight", format === f.value ? "text-white/70" : "text-text-muted")}>{f.desc}</span>
                             </motion.button>
                           ))}
                         </div>
@@ -438,7 +486,7 @@ function QueryPageContent() {
                         </motion.div>
                       )}
 
-                      {hasQuery && !searchLoading && results.emails.length === 0 && (
+                      {hasQuery && !searchLoading && results.emails.length === 0 && results.patients.length === 0 && (
                         <motion.div
                           key="no-emails"
                           initial={{ opacity: 0 }}
@@ -460,17 +508,26 @@ function QueryPageContent() {
                           className="divide-y divide-card-border max-h-[420px] overflow-y-auto"
                         >
                           {results.emails.map((email, i) => (
-                            <motion.div
+                            <motion.button
                               key={email.id}
+                              type="button"
                               initial={{ opacity: 0, x: 8 }}
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: i * 0.03 }}
-                              className="px-3 py-2.5 hover:bg-card-hover/50 transition-colors"
+                              onClick={() => handleEmailClick(email.id)}
+                              className="w-full text-left px-3 py-2.5 hover:bg-card-hover/50 transition-colors cursor-pointer"
                             >
-                              <p className="text-xs font-medium truncate">
-                                {email.subject || "(no subject)"}
-                              </p>
-                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text-muted">
+                              <div className="flex items-center gap-2">
+                                {loadingEmailId === email.id ? (
+                                  <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
+                                ) : (
+                                  <FileText className="w-3 h-3 text-text-muted shrink-0" />
+                                )}
+                                <p className="text-xs font-medium truncate">
+                                  {email.subject || "(no subject)"}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text-muted pl-5">
                                 {email.patientName && (
                                   <span className="font-medium text-text-secondary truncate">{email.patientName}</span>
                                 )}
@@ -483,7 +540,7 @@ function QueryPageContent() {
                                   <span className="px-1 py-0.5 rounded text-[10px] bg-primary/10 text-primary font-medium shrink-0">PDF</span>
                                 )}
                               </div>
-                            </motion.div>
+                            </motion.button>
                           ))}
                         </motion.div>
                       )}
@@ -516,6 +573,83 @@ function QueryPageContent() {
                   )}
                 </div>
               </div>
+
+              {/* Email detail modal */}
+              <AnimatePresence>
+                {selectedEmail && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+                    onClick={() => setSelectedEmail(null)}
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 8 }}
+                      transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                      className={cn(
+                        "bg-card border border-card-border shadow-xl w-full flex flex-col",
+                        selectedEmail?.pdfPath ? "max-w-[95vw] h-[92vh] rounded-xl" : "max-w-3xl max-h-[85vh] rounded-2xl"
+                      )}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-start justify-between px-5 py-3 border-b border-card-border shrink-0">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold text-sm truncate">
+                            {selectedEmail.subject || "(konu yok)"}
+                          </h3>
+                          <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
+                            {selectedEmail.from && <span className="truncate">{selectedEmail.from}</span>}
+                            {selectedEmail.date && (
+                              <>
+                                <span>·</span>
+                                <span>{new Date(selectedEmail.date).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                              </>
+                            )}
+                            {selectedEmail.patientName && (
+                              <>
+                                <span>·</span>
+                                <span className="font-medium text-text-secondary">{selectedEmail.patientName}</span>
+                              </>
+                            )}
+                            {selectedEmail.pdfPath && (
+                              <a
+                                href={`/api/emails/${selectedEmail.id}/pdf`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-2 text-xs text-primary hover:underline"
+                              >
+                                Yeni sekmede aç
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setSelectedEmail(null)}
+                          className="p-1 rounded-lg hover:bg-secondary/50 text-text-muted shrink-0 ml-3 cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                      {selectedEmail.pdfPath ? (
+                        <iframe
+                          src={`/api/emails/${selectedEmail.id}/pdf`}
+                          className="w-full flex-1 min-h-0"
+                          title="PDF attachment"
+                        />
+                      ) : (
+                        <div className="p-5 overflow-y-auto flex-1 min-h-0">
+                          <p className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">
+                            {selectedEmail.body || "İçerik yok"}
+                          </p>
+                        </div>
+                      )}
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </PageTransition>
           )}
 

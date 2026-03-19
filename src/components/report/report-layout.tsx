@@ -15,6 +15,8 @@ import { BloodMetricsChart } from "./blood-metrics-chart";
 import { AttentionPoints } from "./attention-points";
 import { TrendAlerts } from "./trend-alerts";
 import { EmailTimeline } from "./email-timeline";
+import { HealthScorecard } from "./health-scorecard";
+import { ClinicalCorrelations } from "./clinical-correlations";
 import { ScrollReveal } from "@/components/ui/scroll-reveal";
 import { FileText, Activity, AlertTriangle, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -169,9 +171,15 @@ export function ReportLayout({ report, layout, language = "en" }: ReportLayoutPr
       </ScrollReveal>
     ));
 
+  const scorecardBlock = report.bloodMetrics.length > 0
+    ? <ScrollReveal><HealthScorecard metrics={report.bloodMetrics} language={language} /></ScrollReveal>
+    : null;
+
   const trendAlertsBlock = report.trendAlerts && report.trendAlerts.length > 0
     ? <ScrollReveal><TrendAlerts alerts={report.trendAlerts} /></ScrollReveal>
     : null;
+
+  const correlationsBlock = null;
 
   // ── two-column layout ──────────────────────────────────
   if (layout.structure === "two-column") {
@@ -179,8 +187,10 @@ export function ReportLayout({ report, layout, language = "en" }: ReportLayoutPr
     const rightSections = layout.sections.slice(1);
 
     return (
-      <>
+      <div className={cn(spacingClass[layout.spacing])}>
+        {scorecardBlock}
         {trendAlertsBlock}
+        {correlationsBlock}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className={cn("lg:col-span-3", spacingClass[layout.spacing])}>
             {renderSections(leftSections)}
@@ -189,15 +199,17 @@ export function ReportLayout({ report, layout, language = "en" }: ReportLayoutPr
             {renderSections(rightSections)}
           </div>
         </div>
-      </>
+      </div>
     );
   }
 
   // ── dashboard-grid layout ──────────────────────────────
   if (layout.structure === "dashboard-grid") {
     return (
-      <>
+      <div className={cn(spacingClass[layout.spacing])}>
+        {scorecardBlock}
         {trendAlertsBlock}
+        {correlationsBlock}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {layout.sections.map((section, i) => (
             <ScrollReveal key={section.id} delay={i * 0.1}>
@@ -205,7 +217,7 @@ export function ReportLayout({ report, layout, language = "en" }: ReportLayoutPr
             </ScrollReveal>
           ))}
         </div>
-      </>
+      </div>
     );
   }
 
@@ -238,8 +250,10 @@ export function ReportLayout({ report, layout, language = "en" }: ReportLayoutPr
               })}
             </div>
           </nav>
-          {trendAlertsBlock}
           <div className={cn(spacingClass[layout.spacing])}>
+            {scorecardBlock}
+            {trendAlertsBlock}
+            {correlationsBlock}
             {renderSections(layout.sections)}
           </div>
         </div>
@@ -250,7 +264,9 @@ export function ReportLayout({ report, layout, language = "en" }: ReportLayoutPr
   // ── single-column layout (default) ─────────────────────
   return (
     <div className={cn(spacingClass[layout.spacing])}>
+      {scorecardBlock}
       {trendAlertsBlock}
+      {correlationsBlock}
       {renderSections(layout.sections)}
     </div>
   );

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, batchReportSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { getOrCreateSettings } from "@/lib/settings";
-import { enqueueGenerateReport } from "@/lib/queue";
+import { processReport } from "@/lib/jobs/process-report";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    await enqueueGenerateReport({
+    const payload = {
       reportId: report.id,
       patientName: patient.name,
       emails: emails.map((e) => ({
@@ -90,6 +90,18 @@ export async function POST(req: NextRequest) {
         language: settings.reportLanguage,
         customSystemPrompt: settings.customSystemPrompt,
       },
+    };
+
+    after(async () => {
+      try {
+        await processReport(payload);
+      } catch (err) {
+        console.error("[batch] processing failed:", err);
+        await prisma.report.update({
+          where: { id: report.id },
+          data: { status: "failed", step: null },
+        });
+      }
     });
 
     reports.push({

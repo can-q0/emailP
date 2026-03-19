@@ -4,14 +4,14 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, FileText, LogOut, Users, Settings, Menu, X, Search, GraduationCap, RotateCcw } from "lucide-react";
+import { Mail, FileText, LogOut, Users, Settings, Menu, X, Search, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 
 export function Navbar() {
   const { data: session } = useSession();
-  const { isDemoMode, startTour } = useOnboarding();
+  const { isDemoMode } = useOnboarding();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -36,7 +36,7 @@ export function Navbar() {
 
   const navLinks = [
     { href: "/dashboard", label: "Dashboard", icon: null },
-    { href: "/search", label: "Search", icon: Search },
+    { href: "/query", label: "Search", icon: Search },
     { href: "/patients", label: "Patients", icon: Users },
     { href: "/report", label: "Reports", icon: FileText },
   ];
@@ -70,14 +70,6 @@ export function Navbar() {
                 <span className="text-xs font-medium text-amber-600">Demo</span>
               </div>
             )}
-            {/* Restart tour */}
-            <button
-              onClick={() => startTour("dashboard")}
-              className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-lg text-text-muted hover:text-foreground hover:bg-card-hover transition-colors cursor-pointer"
-              title="Turu tekrar başlat"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
             {/* Desktop user dropdown */}
             <div className="hidden md:block relative" ref={dropdownRef}>
               <button

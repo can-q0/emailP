@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,6 +9,7 @@ import { Navbar } from "@/components/navbar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { SearchBar } from "@/components/search/search-bar";
+import { SearchResults } from "@/components/search/search-results";
 import { PatientSelector } from "@/components/query-builder/patient-selector";
 import { ComparisonDatePicker } from "@/components/query-builder/comparison-date-picker";
 import { PageTransition } from "@/components/ui/page-transition";
@@ -36,6 +37,11 @@ import {
   FlaskConical,
   Database,
   PenLine,
+  GitCompareArrows,
+  Paperclip,
+  LayoutList,
+  Columns2,
+  LayoutDashboard,
 } from "lucide-react";
 import { formatDistanceToNow, format as formatDate } from "date-fns";
 import { GmailReconnectBanner } from "@/components/gmail-reconnect-banner";
@@ -53,16 +59,16 @@ const REPORT_STEPS = [
 ];
 
 const REPORT_TYPES = [
-  { value: "detailed report", label: "Detailed Report", icon: FileText, desc: "Full analysis with metrics" },
-  { value: "all emails", label: "All Emails", icon: Mail, desc: "Summary of all lab emails" },
-  { value: "comparison", label: "Comparison", icon: Activity, desc: "Compare two test dates" },
-  { value: "plain PDF", label: "Plain PDF", icon: FileText, desc: "Merge PDF attachments" },
+  { value: "detailed report", label: "Full Analysis", icon: BarChart3, desc: "AI summary + charts + attention points + emails", badge: "Recommended" },
+  { value: "all emails", label: "Email Focus", icon: Mail, desc: "Email list first, brief summary — no charts", badge: null },
+  { value: "comparison", label: "Date Compare", icon: GitCompareArrows, desc: "Pick 2 dates — delta % and trend arrows", badge: null },
+  { value: "plain PDF", label: "PDF Merge", icon: Paperclip, desc: "Download combined PDF — no AI", badge: "Fast" },
 ];
 
 const FORMATS = [
-  { value: "summary", label: "Summary" },
-  { value: "detailed", label: "Detailed" },
-  { value: "graphical", label: "Graphical" },
+  { value: "summary", label: "Compact", icon: LayoutList, desc: "Single column, mini charts" },
+  { value: "detailed", label: "Full Page", icon: Columns2, desc: "Sidebar nav, large charts" },
+  { value: "graphical", label: "Dashboard", icon: LayoutDashboard, desc: "Grid layout, sparklines" },
 ];
 
 function InitialsAvatar({ name, className }: { name: string; className?: string }) {
@@ -131,6 +137,35 @@ export default function DashboardPage() {
 
   const [tokenExpired, setTokenExpired] = useState(false);
 
+  // Email detail modal state
+  const [selectedEmail, setSelectedEmail] = useState<{
+    id: string;
+    subject?: string;
+    from?: string;
+    date?: string;
+    body?: string;
+    pdfPath?: string;
+    patientName?: string;
+  } | null>(null);
+  const [loadingEmailId, setLoadingEmailId] = useState<string | null>(null);
+
+  const handleEmailClick = useCallback(async (emailId: string) => {
+    setLoadingEmailId(emailId);
+    try {
+      const res = await fetch(`/api/emails/${emailId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedEmail(data);
+      } else {
+        toast.error("Email yüklenemedi.");
+      }
+    } catch {
+      toast.error("Bir hata oluştu.");
+    } finally {
+      setLoadingEmailId(null);
+    }
+  }, []);
+
   // Recent reports
   interface RecentReport {
     id: string;
@@ -153,6 +188,12 @@ export default function DashboardPage() {
         .then((data) => { if (Array.isArray(data)) setRecentReports(data); })
         .catch(() => {})
         .finally(() => setReportsLoading(false));
+
+      // Check Gmail token health on load
+      fetch("/api/gmail/token-status")
+        .then((r) => r.json())
+        .then((data) => setTokenExpired(!!data.expired))
+        .catch(() => {});
     }
   }, [status]);
 
@@ -280,8 +321,13 @@ export default function DashboardPage() {
             router.push(`/report/${data.reportId}`);
           } else if (report.status === "failed" || report.status === "no_results") {
             clearInterval(pollInterval);
-            if (report.status === "no_results") setStep("no_results");
-            else { toast.error("Failed to merge PDFs."); setStep("search"); }
+            if (report.step === "gmail_token_expired") {
+              setTokenExpired(true);
+              toast.error("Gmail token expired. Please reconnect your Google account.");
+              setStep("search");
+            } else if (report.status === "no_results") {
+              setStep("no_results");
+            } else { toast.error("Failed to merge PDFs."); setStep("search"); }
           }
         }, 1500);
       } else { toast.error("Failed to create report."); setStep("search"); }
@@ -318,7 +364,11 @@ export default function DashboardPage() {
         }
         if (report.status === "completed" || report.status === "failed" || report.status === "no_results") {
           clearInterval(pollInterval);
-          if (report.status === "completed") { toast.success("Report generated!"); router.push(`/report/${data.reportId}`); }
+          if (report.step === "gmail_token_expired") {
+            setTokenExpired(true);
+            toast.error("Gmail token expired. Please reconnect your Google account.");
+            setStep("search");
+          } else if (report.status === "completed") { toast.success("Report generated!"); router.push(`/report/${data.reportId}`); }
           else if (report.status === "no_results") { setStep("no_results"); }
           else {
             setFailedReport({ reportId: data.reportId, patientId, emailIds, patientName: name, reportType: rType, format: fmt, errorMessage: report.step || "An unexpected error occurred." });
@@ -330,7 +380,7 @@ export default function DashboardPage() {
   };
 
   const handleCacheEmails = useCallback(async () => {
-    toast.loading("Caching emails...", { id: "cache" });
+    toast.loading("Syncing from Gmail & caching emails...", { id: "cache" });
     try {
       const res = await fetch("/api/emails/cache", {
         method: "POST",
@@ -339,7 +389,9 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       toast.dismiss("cache");
-      if (data.cached > 0) {
+      if (!res.ok) {
+        toast.error(data.error || "Failed to cache emails.");
+      } else if (data.cached > 0 || data.synced > 0) {
         toast.success(data.message);
       } else {
         toast.info(data.message || "All emails already cached.");
@@ -393,11 +445,11 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-16">
+      <div className={cn("mx-auto px-4 sm:px-6 py-8 sm:py-16", hasQuery && hasResults ? "max-w-6xl" : "max-w-4xl")}>
+        {tokenExpired && <GmailReconnectBanner />}
         <AnimatePresence mode="wait">
           {step === "search" && (
             <PageTransition key="search">
-              {tokenExpired && <GmailReconnectBanner />}
 
               {/* Header */}
               <div className="mb-8">
@@ -448,246 +500,135 @@ export default function DashboardPage() {
                 />
               </motion.div>
 
-              {/* Patient results */}
-              <AnimatePresence mode="wait">
-                {hasQuery && hasResults && (
-                  <motion.div
-                    key="results"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    className="mb-8"
-                  >
-                    <div className="flex items-center gap-2 mb-3">
-                      <User className="w-4 h-4 text-text-muted" />
-                      <span className="text-sm text-text-muted font-medium">
-                        {results.patients.length} patient{results.patients.length !== 1 ? "s" : ""} found
-                      </span>
-                    </div>
-                    {results.patients.length > 0 && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {results.patients.map((patient, i) => (
-                          <motion.div
-                            key={patient.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.06, duration: 0.3 }}
-                          >
-                            <GlassCard
-                              hover
-                              className="p-4 cursor-pointer"
-                              onClick={() => { setSelectedPatient(patient); setReportType("detailed report"); setFormat("detailed"); }}
-                            >
-                              <div className="flex items-center gap-3">
-                                <InitialsAvatar name={patient.name} />
-                                <div className="flex-1 min-w-0">
-                                  <h3 className="font-semibold truncate">{patient.name}</h3>
-                                  <div className="flex items-center gap-2 mt-0.5 text-xs text-text-muted">
-                                    {patient.governmentId && (
-                                      <span className="px-1.5 py-0.5 rounded bg-card-hover border border-card-border font-mono">
-                                        TC: {patient.governmentId}
-                                      </span>
-                                    )}
-                                    {patient.gender && <span>{patient.gender === "Male" ? "Erkek" : "Kadın"}</span>}
-                                    {patient.birthYear && <span>{patient.birthYear}</span>}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3 shrink-0">
-                                  <span className="flex items-center gap-1 text-xs text-text-muted">
-                                    <Mail className="w-3.5 h-3.5" /> {patient.emailCount}
-                                  </span>
-                                  <span className="flex items-center gap-1 text-xs text-text-muted">
-                                    <Activity className="w-3.5 h-3.5" /> {patient.metricCount}
-                                  </span>
-                                  <ArrowRight className="w-4 h-4 text-text-faint" />
-                                </div>
-                              </div>
-                            </GlassCard>
-                          </motion.div>
-                        ))}
-                      </div>
-                    )}
+              {/* Search results + report config side by side */}
+              {(hasQuery && (hasResults || searchLoading)) && (
+                <motion.div
+                  key="search-results"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="mb-8 flex flex-col lg:flex-row gap-6"
+                >
+                  {/* Left — search results */}
+                  <div className="flex-1 min-w-0">
+                    <SearchResults results={results} isLoading={searchLoading} />
+                  </div>
 
-                    {/* Emails */}
-                    {results.emails.length > 0 && (
-                      <div className="mt-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Mail className="w-4 h-4 text-text-muted" />
-                          <span className="text-sm text-text-muted font-medium">
-                            {results.emails.length} email{results.emails.length !== 1 ? "s" : ""}
-                          </span>
-                        </div>
-                        <GlassCard className="divide-y divide-card-border overflow-hidden">
-                          {results.emails.slice(0, 5).map((email, i) => (
-                            <motion.div
-                              key={email.id}
-                              initial={{ opacity: 0, x: -8 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: i * 0.04, duration: 0.25 }}
-                              className="flex items-center gap-3 px-4 py-3 hover:bg-card-hover/50 transition-colors"
-                            >
-                              <div className="p-1.5 rounded-lg bg-severity-low/10 shrink-0">
-                                <FlaskConical className="w-3.5 h-3.5 text-severity-low" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium truncate text-sm">
-                                  {email.subject || "(no subject)"}
-                                </p>
-                                <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
-                                  {email.patientName && (
-                                    <>
-                                      <span className="font-medium text-text-secondary">{email.patientName}</span>
-                                      <span className="text-text-faint">·</span>
-                                    </>
-                                  )}
-                                  {email.date && (
-                                    <span>{formatDate(new Date(email.date), "d MMM yyyy")}</span>
-                                  )}
-                                </div>
-                              </div>
-                              {email.pdfPath && (
-                                <span className="px-2 py-0.5 rounded-lg text-xs bg-primary/10 text-primary font-medium border border-primary/20 shrink-0">
-                                  PDF
-                                </span>
-                              )}
-                            </motion.div>
-                          ))}
-                        </GlassCard>
-                        {results.emails.length > 5 && (
-                          <motion.button
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: 0.3 }}
-                            onClick={() => router.push("/search")}
-                            className="mt-2 text-sm text-primary font-medium hover:underline cursor-pointer"
-                          >
-                            View all {results.emails.length} emails →
-                          </motion.button>
-                        )}
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-
-                {hasQuery && !hasResults && !searchLoading && (
-                  <motion.div
-                    key="no-search-results"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-center py-12 mb-8"
-                  >
-                    <div className="animate-float inline-block mb-3">
-                      <div className="p-3 rounded-2xl bg-text-muted/5">
-                        <Search className="w-8 h-8 text-text-faint" />
-                      </div>
-                    </div>
-                    <p className="text-sm text-text-muted">No patients found. Try a different name.</p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Report config modal */}
-              <AnimatePresence>
-                {selectedPatient && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
-                    onClick={() => setSelectedPatient(null)}
-                  >
+                  {/* Right — report config sticky sidebar */}
+                  {hasResults && !searchLoading && (
                     <motion.div
-                      initial={{ opacity: 0, scale: 0.95, y: 8 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: 8 }}
-                      transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                      className="bg-card border border-card-border rounded-2xl shadow-xl w-full max-w-lg"
-                      onClick={(e) => e.stopPropagation()}
+                      initial={{ opacity: 0, x: 8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.15 }}
+                      className="lg:w-64 shrink-0"
                     >
-                      {/* Header */}
-                      <div className="flex items-center gap-3 p-5 border-b border-card-border">
-                        <InitialsAvatar name={selectedPatient.name} />
-                        <div className="flex-1 min-w-0">
-                          <h2 className="font-semibold truncate">{selectedPatient.name}</h2>
-                          <div className="flex items-center gap-2 text-xs text-text-muted">
-                            <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {selectedPatient.emailCount} emails</span>
-                            <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> {selectedPatient.metricCount} metrics</span>
-                          </div>
-                        </div>
-                        <button onClick={() => setSelectedPatient(null)} className="p-1.5 rounded-lg hover:bg-card-hover text-text-muted">
-                          <X className="w-5 h-5" />
-                        </button>
-                      </div>
-
-                      {/* Report type */}
-                      <div className="p-5 space-y-4">
+                      <div className="lg:sticky lg:top-8 space-y-4">
+                        {/* Report Type */}
                         <div>
-                          <p className="text-sm font-medium mb-2.5">Report Type</p>
-                          <div className="grid grid-cols-2 gap-2">
+                          <p className="text-xs font-medium text-text-muted mb-2">Report Type</p>
+                          <div className="space-y-1.5">
                             {REPORT_TYPES.map((t) => (
-                              <motion.button
+                              <button
                                 key={t.value}
-                                whileTap={{ scale: 0.97 }}
                                 onClick={() => setReportType(t.value)}
                                 className={cn(
-                                  "flex items-start gap-2.5 p-3 rounded-xl border text-left transition-all cursor-pointer",
+                                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all cursor-pointer",
                                   reportType === t.value
-                                    ? "border-primary/40 bg-primary/5 ring-2 ring-primary/10"
+                                    ? "border-primary/40 bg-primary/5 ring-1 ring-primary/10"
                                     : "border-card-border hover:border-card-border/80 bg-card"
                                 )}
                               >
-                                <t.icon className={cn("w-4 h-4 mt-0.5 shrink-0", reportType === t.value ? "text-primary" : "text-text-muted")} />
-                                <div>
-                                  <p className={cn("text-sm font-medium", reportType === t.value ? "text-primary" : "text-foreground")}>{t.label}</p>
-                                  <p className="text-[11px] text-text-muted mt-0.5">{t.desc}</p>
+                                <t.icon className={cn("w-4 h-4 shrink-0", reportType === t.value ? "text-primary" : "text-text-muted")} />
+                                <div className="min-w-0">
+                                  <p className={cn("text-xs font-medium", reportType === t.value ? "text-primary" : "text-foreground")}>
+                                    {t.label}
+                                    {t.badge && (
+                                      <span className={cn(
+                                        "ml-1.5 px-1 py-0.5 rounded text-[9px] font-medium",
+                                        t.badge === "Recommended" ? "bg-primary/10 text-primary" : "bg-emerald-500/10 text-emerald-600"
+                                      )}>{t.badge}</span>
+                                    )}
+                                  </p>
+                                  <p className="text-[10px] text-text-muted leading-tight mt-0.5">{t.desc}</p>
                                 </div>
-                              </motion.button>
+                              </button>
                             ))}
                           </div>
                         </div>
 
                         {/* Format — hide for plain PDF */}
-                        {reportType !== "plain PDF" && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                          >
-                            <p className="text-sm font-medium mb-2.5">Format</p>
-                            <div className="flex gap-2">
-                              {FORMATS.map((f) => (
-                                <motion.button
-                                  key={f.value}
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={() => setFormat(f.value)}
-                                  className={cn(
-                                    "px-4 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                                    format === f.value
-                                      ? "bg-primary text-white"
-                                      : "border border-card-border text-text-secondary hover:border-foreground/20"
-                                  )}
-                                >
-                                  {f.label}
-                                </motion.button>
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </div>
+                        <AnimatePresence>
+                          {reportType !== "plain PDF" && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                            >
+                              <p className="text-xs font-medium text-text-muted mb-2">Layout</p>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {FORMATS.map((f) => (
+                                  <button
+                                    key={f.value}
+                                    onClick={() => setFormat(f.value)}
+                                    className={cn(
+                                      "flex flex-col items-center gap-1 p-2 rounded-xl text-center transition-all cursor-pointer",
+                                      format === f.value
+                                        ? "bg-primary text-white"
+                                        : "border border-card-border text-text-secondary hover:border-foreground/20"
+                                    )}
+                                  >
+                                    <f.icon className={cn("w-3.5 h-3.5", format === f.value ? "text-white" : "text-text-muted")} />
+                                    <span className="text-[10px] font-medium">{f.label}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
 
-                      {/* Footer */}
-                      <div className="flex items-center justify-end gap-3 p-5 border-t border-card-border">
-                        <Button variant="ghost" onClick={() => setSelectedPatient(null)}>Cancel</Button>
-                        <Button onClick={() => handleGenerate(selectedPatient, reportType, format)}>
+                        {/* Generate button */}
+                        <Button
+                          className="w-full py-2.5"
+                          onClick={() => {
+                            if (results.patients.length === 1) {
+                              handleGenerate(results.patients[0], reportType, format);
+                            } else if (results.patients.length > 1) {
+                              setCandidates(results.patients.map((p) => ({
+                                id: p.id, name: p.name, governmentId: p.governmentId, emailCount: p.emailCount,
+                              })));
+                              setStep("disambiguate");
+                            } else {
+                              toast.error("No patients found to generate report.");
+                            }
+                          }}
+                          disabled={results.patients.length === 0}
+                        >
                           <Sparkles className="w-4 h-4 mr-2" />
-                          Generate Report
+                          Generate
+                          <span className="ml-1.5 text-xs opacity-70">({results.emails.length})</span>
                         </Button>
                       </div>
                     </motion.div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                  )}
+                </motion.div>
+              )}
+
+              {hasQuery && !hasResults && !searchLoading && (
+                <motion.div
+                  key="no-search-results"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-center py-12 mb-8"
+                >
+                  <div className="animate-float inline-block mb-3">
+                    <div className="p-3 rounded-2xl bg-text-muted/5">
+                      <Search className="w-8 h-8 text-text-faint" />
+                    </div>
+                  </div>
+                  <p className="text-sm text-text-muted">Sonuç bulunamadı. Farklı bir isim deneyin.</p>
+                </motion.div>
+              )}
 
               {/* Quick actions */}
               {!hasQuery && (
@@ -826,8 +767,19 @@ export default function DashboardPage() {
             <motion.div key="no-results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="flex flex-col items-center justify-center py-24 max-w-md mx-auto">
               <div className="p-3 rounded-full bg-text-muted/10 mb-6 animate-float"><SearchX className="w-10 h-10 text-text-muted" /></div>
               <h2 className="text-xl font-bold mb-2">No Lab Reports Found</h2>
-              <p className="text-sm text-text-secondary text-center mb-6">No laboratory test results were found for this patient.</p>
-              <Button variant="ghost" onClick={handleStartOver}>Try Another Search</Button>
+              <p className="text-sm text-text-secondary text-center mb-6">
+                {tokenExpired
+                  ? "Your Gmail connection has expired. Please reconnect to access your lab emails."
+                  : "No laboratory test results were found for this patient."}
+              </p>
+              <div className="flex gap-3">
+                <Button variant="ghost" onClick={handleStartOver}>Try Another Search</Button>
+                {tokenExpired && (
+                  <Button onClick={() => signIn("google", { callbackUrl: window.location.pathname })}>
+                    Reconnect Gmail
+                  </Button>
+                )}
+              </div>
             </motion.div>
           )}
 

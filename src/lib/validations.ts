@@ -40,6 +40,7 @@ export const reportSendSchema = z.object({
 
 export const patientSearchSchema = z.object({
   q: z.string().optional(),
+  sort: z.enum(["name-asc", "name-desc", "emails", "updated"]).optional(),
 });
 
 export const patientUpdateSchema = z.object({

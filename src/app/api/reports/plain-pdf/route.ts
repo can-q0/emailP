@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, reportIdSchema, parseSearchParams } from "@/lib/validations";
 import { z } from "zod";
 import { readPdf } from "@/lib/pdf-storage";
-import { enqueueMergePdfs } from "@/lib/queue";
+import { mergePdfs } from "@/lib/jobs/merge-pdfs";
 
 const plainPdfSchema = z.object({
   patientId: z.string().min(1),
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  await enqueueMergePdfs({
+  const payload = {
     reportId: report.id,
     emails: emails.map((e) => ({
       id: e.id,
@@ -70,6 +70,18 @@ export async function POST(req: NextRequest) {
       date: e.date?.toISOString() ?? null,
     })),
     userId,
+  };
+
+  after(async () => {
+    try {
+      await mergePdfs(payload);
+    } catch (err) {
+      console.error("[plain-pdf] merge failed:", err);
+      await prisma.report.update({
+        where: { id: report.id },
+        data: { status: "failed", step: null },
+      });
+    }
   });
 
   return NextResponse.json({ reportId: report.id, status: "processing" });

@@ -36,6 +36,8 @@ const typeLabels: Record<TrendAlert["type"], string> = {
   consecutive_worsening: "Consecutive Worsening",
   rapid_change: "Rapid Change",
   persistent_abnormal: "Persistent Abnormal",
+  linear_trend: "Linear Trend",
+  accelerating_change: "Accelerating Change",
 };
 
 export function TrendAlerts({ alerts }: TrendAlertsProps) {

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getGmailClient, fetchGmailMessage, fetchAttachment } from "@/lib/gmail";
+import { getGmailClient, fetchGmailMessage, fetchAttachment, GmailTokenError } from "@/lib/gmail";
 import { findPdfParts, decodeBase64UrlToBuffer } from "@/lib/email-parser";
 import { PDFDocument } from "pdf-lib";
 import { savePdf, readEmailPdf } from "@/lib/pdf-storage";
@@ -17,6 +17,7 @@ export async function mergePdfs(payload: MergePdfsPayload) {
     const pdfPathMap = new Map(emailRecords.map((e) => [e.id, e.pdfPath]));
 
     let gmail: Awaited<ReturnType<typeof getGmailClient>> | null = null;
+    let gmailAuthFailed = false;
     const mergedPdf = await PDFDocument.create();
     let pdfCount = 0;
 
@@ -39,10 +40,26 @@ export async function mergePdfs(payload: MergePdfsPayload) {
           }
         }
 
+        // Skip Gmail fetch if auth already failed
+        if (gmailAuthFailed) continue;
+
         // Fallback: fetch from Gmail
-        if (!gmail) gmail = await getGmailClient(userId);
+        if (!gmail) {
+          try {
+            gmail = await getGmailClient(userId);
+          } catch (err) {
+            if (err instanceof GmailTokenError || (err instanceof Error && err.name === "GmailTokenError")) {
+              console.error("[merge-pdfs] Gmail token expired, cannot fetch PDFs from Gmail");
+              gmailAuthFailed = true;
+              continue;
+            }
+            throw err;
+          }
+        }
+
         const message = await fetchGmailMessage(gmail, email.gmailMessageId);
         const pdfParts = findPdfParts(message);
+        console.log(`[merge-pdfs] Email ${email.id} (${email.subject}): ${pdfParts.length} PDF part(s) found via Gmail`);
 
         for (const part of pdfParts) {
           let raw: string;
@@ -79,9 +96,16 @@ export async function mergePdfs(payload: MergePdfsPayload) {
     }
 
     if (pdfCount === 0) {
+      // Distinguish between "no PDFs exist" and "can't access Gmail"
+      const errorStep = gmailAuthFailed
+        ? "gmail_token_expired"
+        : null;
+      const errorStatus = gmailAuthFailed ? "failed" : "no_results";
+
+      console.warn(`[merge-pdfs] Report ${reportId}: No PDFs found. gmailAuthFailed=${gmailAuthFailed}`);
       await prisma.report.update({
         where: { id: reportId },
-        data: { status: "no_results", step: null },
+        data: { status: errorStatus, step: errorStep },
       });
       return;
     }
@@ -106,7 +130,6 @@ export async function mergePdfs(payload: MergePdfsPayload) {
         step: error instanceof Error ? error.message : "Unknown error",
       },
     });
-    // Re-throw so pg-boss can retry
     throw error;
   }
 }

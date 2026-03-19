@@ -9,6 +9,11 @@
   --text-secondary: #6B5B4D;
   --text-muted: #9C8B7A;
   --text-faint: #C4B5A4;
+  --chart-grid: rgba(45,32,22,0.08);
+  --chart-axis: rgba(45,32,22,0.1);
+  --chart-shadow: rgba(45,32,22,0.1);
+  --chart-ref-fill: rgba(58,143,92,0.08);
+  --chart-ref-fill-strong: rgba(58,143,92,0.15);
 }
 
 .dark {
@@ -20,6 +25,11 @@
   --text-secondary: #A89888;
   --text-muted: #7A6E62;
   --text-faint: #534840;
+  --chart-grid: rgba(232,223,211,0.08);
+  --chart-axis: rgba(232,223,211,0.1);
+  --chart-shadow: rgba(0,0,0,0.3);
+  --chart-ref-fill: rgba(58,143,92,0.12);
+  --chart-ref-fill-strong: rgba(58,143,92,0.2);
 }
 
 @theme inline {

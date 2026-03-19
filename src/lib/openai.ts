@@ -80,7 +80,7 @@ async function classifyEmailsChunk(
 
   const response = await openai.chat.completions.create({
     model,
-    temperature: 0.0,
+    temperature: 1,
     response_format: { type: "json_object" },
     messages: [
       {
@@ -166,6 +166,7 @@ export async function extractBloodMetrics(
     referenceMin?: number;
     referenceMax?: number;
     isAbnormal: boolean;
+    confidence: "high" | "medium" | "low";
   }>
 > {
   return withRetry(
@@ -228,7 +229,10 @@ Unit normalization:
 - Always use g/dL for hemoglobin (convert g/L by dividing by 10)
 - Always use mg/dL for glucose, cholesterol, triglycerides, creatinine, BUN, uric acid
 - Always use U/L for liver enzymes (ALT, AST, GGT, ALP)
-- Always use cells/μL or ×10³/μL for blood cell counts
+- For RBC/Eritrosit: use ×10⁶/μL (M/μL) — store 5.5, NOT 5500000
+- For WBC/Lökosit: use ×10³/μL (K/μL) — store 5.2, NOT 5200
+- For Platelets/Trombosit: use ×10³/μL (K/μL) — store 198, NOT 198000
+- IMPORTANT: Store values as displayed on the lab report, never expand to raw counts
 - Always use mIU/L for TSH
 - Always use ng/mL for ferritin, Vitamin D, Vitamin B12, PSA
 - Always use mmol/L for sodium, potassium, calcium, magnesium
@@ -242,6 +246,10 @@ Return JSON with a "metrics" array where each item has:
 - referenceMin: number or null
 - referenceMax: number or null
 - isAbnormal: boolean (true if outside reference range)
+- confidence: "high" | "medium" | "low"
+  • "high": value and unit are clearly stated in a structured lab format with no ambiguity
+  • "medium": value is present but formatting is unusual, OCR artifacts possible, or unit had to be inferred
+  • "low": value is partially legible, extracted from unstructured text, or unit conversion was uncertain
 
 Only include metrics that have clear numeric values. Do not guess or infer missing values.`,
           },
@@ -266,6 +274,7 @@ type MetricResult = Array<{
   referenceMin?: number;
   referenceMax?: number;
   isAbnormal: boolean;
+  confidence: "high" | "medium" | "low";
 }>;
 
 const METRICS_BATCH_SIZE = 8;
@@ -282,7 +291,7 @@ async function extractBloodMetricsChunk(
 
   const response = await openai.chat.completions.create({
     model: "gpt-5-mini",
-    temperature: 0.0,
+    temperature: 1,
     response_format: { type: "json_object" },
     messages: [
       {
@@ -339,7 +348,10 @@ Unit normalization:
 - Always use g/dL for hemoglobin (convert g/L by dividing by 10)
 - Always use mg/dL for glucose, cholesterol, triglycerides, creatinine, BUN, uric acid
 - Always use U/L for liver enzymes (ALT, AST, GGT, ALP)
-- Always use cells/μL or ×10³/μL for blood cell counts
+- For RBC/Eritrosit: use ×10⁶/μL (M/μL) — store 5.5, NOT 5500000
+- For WBC/Lökosit: use ×10³/μL (K/μL) — store 5.2, NOT 5200
+- For Platelets/Trombosit: use ×10³/μL (K/μL) — store 198, NOT 198000
+- IMPORTANT: Store values as displayed on the lab report, never expand to raw counts
 - Always use mIU/L for TSH
 - Always use ng/mL for ferritin, Vitamin D, Vitamin B12, PSA
 - Always use mmol/L for sodium, potassium, calcium, magnesium
@@ -353,6 +365,10 @@ Return JSON with a "results" object keyed by email id. Each value is an array of
 - referenceMin: number or null
 - referenceMax: number or null
 - isAbnormal: boolean (true if outside reference range)
+- confidence: "high" | "medium" | "low"
+  • "high": value and unit are clearly stated in a structured lab format
+  • "medium": formatting is unusual, OCR artifacts possible, or unit inferred
+  • "low": partially legible, extracted from unstructured text, or unit conversion uncertain
 
 Only include metrics that have clear numeric values.`,
       },
@@ -451,8 +467,9 @@ function buildSummaryPrompt(
   } else {
     // "detailed report" (default)
     reportTypeInstructions = `Report type: DETAILED clinical report.
-- Write 2-4 paragraphs organized by body system (hematology, metabolic/liver, lipids/cardiovascular, endocrine/thyroid, nutritional/vitamins, renal, inflammatory markers).
-- For each system, analyze trends over time: is the patient improving, worsening, or stable? Quantify changes where possible (e.g., "Hemoglobin improved from 10.2 to 12.8 g/dL over 6 months").
+- Write a CONCISE summary of 1-2 short paragraphs (max 150 words total). Focus only on the most clinically significant findings.
+- Mention only abnormal metrics and notable trends — skip normal values entirely.
+- Quantify key changes (e.g., "Hemoglobin improved from 10.2 to 12.8 g/dL over 6 months") but keep descriptions brief.
 - ${crossReferenceInstructions}`;
   }
 
@@ -513,6 +530,72 @@ Return JSON with:
    - recommendations: string[] (1-3 specific, actionable recommendations)${customSystemPrompt ? `\n\nAdditional instructions from the user:\n${customSystemPrompt}` : ""}`;
 }
 
+// ── Chain-of-Verification: post-generation fact-check ───
+
+async function verifySummary(
+  summary: string,
+  attentionPoints: Array<{
+    severity: string;
+    title: string;
+    description: string;
+    relatedMetrics: string[];
+    recommendations: string[];
+  }>,
+  metrics: Array<{
+    metricName: string;
+    value: number;
+    unit: string;
+    isAbnormal: boolean;
+    measuredAt: string;
+  }>,
+  model: string = "gpt-5"
+): Promise<{
+  summary: string;
+  attentionPoints: typeof attentionPoints;
+  corrections: string[];
+}> {
+  return withRetry(
+    async () => {
+      const response = await openai.chat.completions.create({
+        model,
+        temperature: 1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are a medical data verification specialist. Your job is to fact-check a generated lab report summary against the raw extracted metrics.
+
+For each claim in the summary and attention points:
+1. Verify that stated numeric values match the raw metrics data
+2. Verify that trend descriptions (improving/worsening/stable) are supported by the data
+3. Verify that severity assessments are proportional to actual deviations
+4. Flag any statements not supported by the provided data
+
+Return JSON with:
+- "summary": the corrected summary (fix any inaccurate values or unsupported claims; keep unchanged if accurate)
+- "attentionPoints": the corrected attention points array (same structure as input; fix inaccuracies, remove unsupported points)
+- "corrections": string[] listing each correction made (empty array if no corrections needed)
+
+IMPORTANT: Only correct factual errors. Do not change style, tone, or add new information not present in the data.`,
+          },
+          {
+            role: "user",
+            content: `Raw metrics data:\n${JSON.stringify(metrics, null, 2)}\n\nGenerated summary:\n${summary}\n\nGenerated attention points:\n${JSON.stringify(attentionPoints, null, 2)}`,
+          },
+        ],
+      });
+
+      const parsed = JSON.parse(response.choices[0].message.content || "{}");
+      return {
+        summary: parsed.summary || summary,
+        attentionPoints: parsed.attentionPoints || attentionPoints,
+        corrections: parsed.corrections || [],
+      };
+    },
+    { attempts: 2, label: "verifySummary" }
+  );
+}
+
 export async function generateSummaryAndAttentionPoints(
   patientName: string,
   emailSummaries: string[],
@@ -538,6 +621,14 @@ export async function generateSummaryAndAttentionPoints(
       description: string;
       percentChange?: number;
     }>;
+    clinicalCorrelations?: Array<{
+      pattern: string;
+      severity: string;
+      description: string;
+      involvedMetrics: string[];
+      recommendation: string;
+    }>;
+    verify?: boolean;
   }
 ): Promise<{
   summary: string;
@@ -548,6 +639,7 @@ export async function generateSummaryAndAttentionPoints(
     relatedMetrics: string[];
     recommendations: string[];
   }>;
+  corrections?: string[];
 }> {
   return withRetry(
     async () => {
@@ -568,8 +660,16 @@ export async function generateSummaryAndAttentionPoints(
         userContent += `\n\nDetected trends (use these for deeper analysis):\n${trendSection}`;
       }
 
+      // Append deterministic clinical correlations
+      if (options?.clinicalCorrelations && options.clinicalCorrelations.length > 0) {
+        const corrSection = options.clinicalCorrelations.map((c) =>
+          `- [${c.severity.toUpperCase()}] ${c.pattern}: ${c.description} (metrics: ${c.involvedMetrics.join(", ")})`
+        ).join("\n");
+        userContent += `\n\nDeterministic clinical correlations detected (incorporate these into your analysis — they are algorithmically verified):\n${corrSection}`;
+      }
+
       const response = await openai.chat.completions.create({
-        model: options?.model || "gpt-5",
+        model: options?.model || "gpt-5-mini",
         response_format: { type: "json_object" },
         messages: [
           {
@@ -584,10 +684,36 @@ export async function generateSummaryAndAttentionPoints(
       });
 
       const parsed = JSON.parse(response.choices[0].message.content || "{}");
-      return {
+      let result = {
         summary: parsed.summary || "",
         attentionPoints: parsed.attentionPoints || [],
+        corrections: undefined as string[] | undefined,
       };
+
+      // Chain-of-Verification: second pass to fact-check the generated summary
+      if (options?.verify !== false) {
+        try {
+          const verified = await verifySummary(
+            result.summary,
+            result.attentionPoints,
+            metrics,
+            options?.model || "gpt-5-mini"
+          );
+          result = {
+            summary: verified.summary,
+            attentionPoints: verified.attentionPoints as typeof result.attentionPoints,
+            corrections: verified.corrections.length > 0 ? verified.corrections : undefined,
+          };
+          if (verified.corrections.length > 0) {
+            console.log(`[verifySummary] ${verified.corrections.length} corrections applied:`, verified.corrections);
+          }
+        } catch (verifyError) {
+          // Verification is non-critical — log and continue with unverified result
+          console.warn("[verifySummary] Verification failed, using unverified result:", verifyError);
+        }
+      }
+
+      return result;
     },
     { attempts: 3, label: "generateSummaryAndAttentionPoints" }
   );

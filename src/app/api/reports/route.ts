@@ -38,6 +38,9 @@ export async function GET(req: NextRequest) {
       trendAlerts: report.trendAlerts
         ? JSON.parse(report.trendAlerts)
         : [],
+      clinicalCorrelations: report.clinicalCorrelations
+        ? JSON.parse(report.clinicalCorrelations)
+        : [],
       emails: report.reportEmails.map((re) => re.email),
     });
   }

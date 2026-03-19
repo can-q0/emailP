@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { GlassCard } from "@/components/ui/glass-card";
-import { FileText } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import type { SummaryVariant } from "@/config/report-layouts";
 
 interface GeneralSummaryProps {
@@ -18,11 +18,6 @@ export function GeneralSummary({ summary, variant = "default" }: GeneralSummaryP
 }
 
 function DefaultSummary({ summary }: { summary: string }) {
-  const { displayedText, isComplete } = useTypewriter({
-    text: summary,
-    speed: 15,
-  });
-
   return (
     <section id="summary">
       <div className="flex items-center gap-3 mb-4">
@@ -33,14 +28,18 @@ function DefaultSummary({ summary }: { summary: string }) {
       </div>
 
       <GlassCard className="p-6">
-        <div className="prose prose-sm max-w-none">
-          <p className="whitespace-pre-wrap leading-relaxed text-foreground/80">
-            {displayedText}
-            {!isComplete && (
-              <span className="inline-block w-0.5 h-4 bg-primary ml-0.5 animate-pulse" />
-            )}
-          </p>
-        </div>
+        {summary ? (
+          <div className="prose prose-sm max-w-none">
+            <p className="whitespace-pre-wrap leading-relaxed text-foreground/80">
+              {summary}
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 py-4">
+            <Loader2 className="w-5 h-5 text-primary animate-spin" />
+            <p className="text-sm text-text-muted">AI summary is being generated...</p>
+          </div>
+        )}
       </GlassCard>
     </section>
   );

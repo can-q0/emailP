@@ -15,10 +15,12 @@ export interface MetricReference {
   category: string;
   trCategory: string;
   ranges?: AgeGenderRange[];
+  description?: string;
+  trDescription?: string;
 }
 
 export const bloodMetricReferences: Record<string, MetricReference> = {
-  hemoglobin: { name: "Hemoglobin", trName: "Hemoglobin", unit: "g/dL", min: 12.0, max: 17.5, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi", ranges: [
+  hemoglobin: { name: "Hemoglobin", trName: "Hemoglobin", unit: "g/dL", min: 12.0, max: 17.5, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi", description: "Protein in red blood cells that carries oxygen throughout the body", trDescription: "Kirmizi kan hucrelerinde oksijen tasiyan protein", ranges: [
     { gender: "Male", min: 13.5, max: 17.5 },
     { gender: "Female", min: 12.0, max: 15.5 },
     { gender: "Male", ageMin: 65, min: 12.6, max: 17.4 },
@@ -32,8 +34,8 @@ export const bloodMetricReferences: Record<string, MetricReference> = {
     { gender: "Male", min: 4.35, max: 5.65 },
     { gender: "Female", min: 3.92, max: 5.13 },
   ] },
-  wbc: { name: "White Blood Cells", trName: "Lokosit", unit: "K/uL", min: 4.0, max: 11.0, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
-  platelets: { name: "Platelets", trName: "Trombosit", unit: "K/uL", min: 150, max: 400, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
+  wbc: { name: "White Blood Cells", trName: "Lokosit", unit: "K/uL", min: 4.0, max: 11.0, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi", description: "Immune system cells that fight infections", trDescription: "Enfeksiyonlara karsi savasan bagisiklik sistemi hucreleri" },
+  platelets: { name: "Platelets", trName: "Trombosit", unit: "K/uL", min: 150, max: 400, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi", description: "Cell fragments that help blood clot and stop bleeding", trDescription: "Kanin pihtilasmasina ve kanamanin durmasina yardimci olan hucre parcaciklari" },
   mcv: { name: "MCV", trName: "MCV", unit: "fL", min: 80, max: 100, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
   mch: { name: "MCH", trName: "MCH", unit: "pg", min: 27, max: 33, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
   mchc: { name: "MCHC", trName: "MCHC", unit: "g/dL", min: 32, max: 36, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
@@ -45,9 +47,9 @@ export const bloodMetricReferences: Record<string, MetricReference> = {
   monocytes: { name: "Monocytes", trName: "Monosit", unit: "%", min: 2, max: 8, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
   eosinophils: { name: "Eosinophils", trName: "Eozinofil", unit: "%", min: 1, max: 4, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
   basophils: { name: "Basophils", trName: "Bazofil", unit: "%", min: 0, max: 1, category: "Complete Blood Count", trCategory: "Tam Kan Sayimi" },
-  glucose: { name: "Glucose (Fasting)", trName: "Aclik Kan Sekeri", unit: "mg/dL", min: 70, max: 100, category: "Metabolic Panel", trCategory: "Biyokimya" },
+  glucose: { name: "Glucose (Fasting)", trName: "Aclik Kan Sekeri", unit: "mg/dL", min: 70, max: 100, category: "Metabolic Panel", trCategory: "Biyokimya", description: "Blood sugar level measured after fasting; key indicator for diabetes", trDescription: "Aclik sonrasi olculen kan sekeri duzeyi; diyabet gostergesi" },
   bun: { name: "BUN", trName: "Ure", unit: "mg/dL", min: 7, max: 20, category: "Metabolic Panel", trCategory: "Biyokimya" },
-  creatinine: { name: "Creatinine", trName: "Kreatinin", unit: "mg/dL", min: 0.6, max: 1.2, category: "Metabolic Panel", trCategory: "Biyokimya", ranges: [
+  creatinine: { name: "Creatinine", trName: "Kreatinin", unit: "mg/dL", min: 0.6, max: 1.2, category: "Metabolic Panel", trCategory: "Biyokimya", description: "Waste product filtered by kidneys; measures kidney function", trDescription: "Bobrekler tarafindan filtrelenen atik urun; bobrek fonksiyonunu olcer", ranges: [
     { gender: "Male", min: 0.74, max: 1.35 },
     { gender: "Female", min: 0.59, max: 1.04 },
   ] },
@@ -57,7 +59,7 @@ export const bloodMetricReferences: Record<string, MetricReference> = {
   calcium: { name: "Calcium", trName: "Kalsiyum", unit: "mg/dL", min: 8.5, max: 10.5, category: "Metabolic Panel", trCategory: "Biyokimya" },
   totalProtein: { name: "Total Protein", trName: "Total Protein", unit: "g/dL", min: 6.0, max: 8.3, category: "Metabolic Panel", trCategory: "Biyokimya" },
   albumin: { name: "Albumin", trName: "Albumin", unit: "g/dL", min: 3.5, max: 5.0, category: "Metabolic Panel", trCategory: "Biyokimya" },
-  alt: { name: "ALT", trName: "ALT (SGPT)", unit: "U/L", min: 7, max: 56, category: "Liver Panel", trCategory: "Karaciger Paneli", ranges: [
+  alt: { name: "ALT", trName: "ALT (SGPT)", unit: "U/L", min: 7, max: 56, category: "Liver Panel", trCategory: "Karaciger Paneli", description: "Liver enzyme; elevated levels may indicate liver damage", trDescription: "Karaciger enzimi; yuksek degerler karaciger hasarini gosterebilir", ranges: [
     { gender: "Male", min: 7, max: 56 },
     { gender: "Female", min: 7, max: 45 },
   ] },
@@ -72,16 +74,16 @@ export const bloodMetricReferences: Record<string, MetricReference> = {
     { gender: "Male", min: 8, max: 61 },
     { gender: "Female", min: 5, max: 36 },
   ] },
-  totalCholesterol: { name: "Total Cholesterol", trName: "Total Kolesterol", unit: "mg/dL", min: 0, max: 200, category: "Lipid Panel", trCategory: "Lipit Profili" },
-  ldl: { name: "LDL", trName: "LDL Kolesterol", unit: "mg/dL", min: 0, max: 100, category: "Lipid Panel", trCategory: "Lipit Profili" },
-  hdl: { name: "HDL", trName: "HDL Kolesterol", unit: "mg/dL", min: 40, max: 60, category: "Lipid Panel", trCategory: "Lipit Profili" },
-  triglycerides: { name: "Triglycerides", trName: "Trigliserit", unit: "mg/dL", min: 0, max: 150, category: "Lipid Panel", trCategory: "Lipit Profili" },
-  tsh: { name: "TSH", trName: "TSH", unit: "mIU/L", min: 0.4, max: 4.0, category: "Thyroid Panel", trCategory: "Tiroit Paneli" },
+  totalCholesterol: { name: "Total Cholesterol", trName: "Total Kolesterol", unit: "mg/dL", min: 0, max: 200, category: "Lipid Panel", trCategory: "Lipit Profili", description: "Total amount of cholesterol in blood; cardiovascular risk factor", trDescription: "Kandaki toplam kolesterol miktari; kalp-damar risk faktoru" },
+  ldl: { name: "LDL", trName: "LDL Kolesterol", unit: "mg/dL", min: 0, max: 100, category: "Lipid Panel", trCategory: "Lipit Profili", description: "'Bad' cholesterol that can build up in artery walls", trDescription: "Damar duvarlarinda birikebilen 'kotu' kolesterol" },
+  hdl: { name: "HDL", trName: "HDL Kolesterol", unit: "mg/dL", min: 40, max: 60, category: "Lipid Panel", trCategory: "Lipit Profili", description: "'Good' cholesterol that helps remove LDL from arteries", trDescription: "Damarlardan LDL'yi uzaklastirmaya yardimci olan 'iyi' kolesterol" },
+  triglycerides: { name: "Triglycerides", trName: "Trigliserit", unit: "mg/dL", min: 0, max: 150, category: "Lipid Panel", trCategory: "Lipit Profili", description: "Type of fat in the blood; elevated levels increase heart disease risk", trDescription: "Kandaki yag turu; yuksek degerler kalp hastaligi riskini artirir" },
+  tsh: { name: "TSH", trName: "TSH", unit: "mIU/L", min: 0.4, max: 4.0, category: "Thyroid Panel", trCategory: "Tiroit Paneli", description: "Hormone that controls thyroid gland activity", trDescription: "Tiroid bezinin calismasini duzenleyen hormon" },
   freeT4: { name: "Free T4", trName: "Serbest T4", unit: "ng/dL", min: 0.8, max: 1.8, category: "Thyroid Panel", trCategory: "Tiroit Paneli" },
   freeT3: { name: "Free T3", trName: "Serbest T3", unit: "pg/mL", min: 2.3, max: 4.2, category: "Thyroid Panel", trCategory: "Tiroit Paneli" },
-  vitaminD: { name: "Vitamin D", trName: "D Vitamini", unit: "ng/mL", min: 30, max: 100, category: "Vitamins", trCategory: "Vitaminler" },
-  vitaminB12: { name: "Vitamin B12", trName: "B12 Vitamini", unit: "pg/mL", min: 200, max: 900, category: "Vitamins", trCategory: "Vitaminler" },
-  ferritin: { name: "Ferritin", trName: "Ferritin", unit: "ng/mL", min: 12, max: 300, category: "Iron Studies", trCategory: "Demir Paneli", ranges: [
+  vitaminD: { name: "Vitamin D", trName: "D Vitamini", unit: "ng/mL", min: 30, max: 100, category: "Vitamins", trCategory: "Vitaminler", description: "Essential for bone health and immune function; made from sunlight", trDescription: "Kemik sagligi ve bagisiklik icin gerekli; gunes isigi ile uretilir" },
+  vitaminB12: { name: "Vitamin B12", trName: "B12 Vitamini", unit: "pg/mL", min: 200, max: 900, category: "Vitamins", trCategory: "Vitaminler", description: "Vital for nerve function and red blood cell production", trDescription: "Sinir fonksiyonu ve kirmizi kan hucresi uretimi icin hayati" },
+  ferritin: { name: "Ferritin", trName: "Ferritin", unit: "ng/mL", min: 12, max: 300, category: "Iron Studies", trCategory: "Demir Paneli", description: "Protein that stores iron; low levels indicate iron deficiency", trDescription: "Demir depolayan protein; dusuk degerler demir eksikligini gosterir", ranges: [
     { gender: "Male", min: 12, max: 300 },
     { gender: "Female", min: 12, max: 150 },
     { gender: "Female", ageMin: 50, min: 12, max: 263 },
@@ -91,7 +93,7 @@ export const bloodMetricReferences: Record<string, MetricReference> = {
     { gender: "Female", min: 50, max: 170 },
   ] },
   tibc: { name: "TIBC", trName: "TDBK", unit: "ug/dL", min: 250, max: 370, category: "Iron Studies", trCategory: "Demir Paneli" },
-  hba1c: { name: "HbA1c", trName: "HbA1c", unit: "%", min: 4.0, max: 5.6, category: "Diabetes", trCategory: "Diyabet" },
+  hba1c: { name: "HbA1c", trName: "HbA1c", unit: "%", min: 4.0, max: 5.6, category: "Diabetes", trCategory: "Diyabet", description: "Average blood sugar over past 2-3 months; key diabetes marker", trDescription: "Son 2-3 ayin ortalama kan sekerini gosteren diyabet belirteci" },
   esr: { name: "ESR", trName: "Sedimentasyon", unit: "mm/hr", min: 0, max: 20, category: "Inflammation", trCategory: "Inflamasyon", ranges: [
     { gender: "Male", ageMax: 50, min: 0, max: 15 },
     { gender: "Male", ageMin: 50, min: 0, max: 20 },
@@ -111,6 +113,12 @@ export function getMetricDisplayName(metricKey: string, language: string = "en")
   const ref = bloodMetricReferences[metricKey];
   if (!ref) return metricKey;
   return language === "tr" ? ref.trName : ref.name;
+}
+
+export function getMetricDescription(metricKey: string, language: string = "en"): string | undefined {
+  const ref = bloodMetricReferences[metricKey];
+  if (!ref) return undefined;
+  return language === "tr" ? ref.trDescription : ref.description;
 }
 
 export function getCategoryDisplayName(category: string, language: string = "en"): string {

@@ -65,6 +65,28 @@ const MULTI_WORD_METRICS: Record<string, string> = {
   "hdl kolesterol": "hdl",
 };
 
+// ── Compact (no-space) Turkish metric aliases ────────────
+
+const COMPACT_ALIASES: Record<string, string> = {
+  "kanşekeri": "glucose",
+  "kansekeri": "glucose",
+  "açlıkkanşekeri": "glucose",
+  "açlıkşekeri": "glucose",
+  "kolesterol": "totalCholesterol",
+  "totalkolesterol": "totalCholesterol",
+  "ldlkolesterol": "ldl",
+  "hdlkolesterol": "hdl",
+  "trigliserit": "triglycerides",
+  "serbestt4": "freeT4",
+  "serbestt3": "freeT3",
+  "dvitamini": "vitaminD",
+  "b12vitamini": "vitaminB12",
+  "direktbilirubin": "directBilirubin",
+  "totalbilirubin": "totalBilirubin",
+  "totalprotein": "totalProtein",
+  "hemoglobina1c": "hba1c",
+};
+
 // ── Operators ────────────────────────────────────────────
 
 const OPERATORS = ["<=", ">=", "<", ">", "="] as const;
@@ -75,6 +97,36 @@ function parseOperatorValue(token: string): { operator: Operator; value: number 
     if (token.startsWith(op)) {
       const num = parseFloat(token.slice(op.length));
       if (!isNaN(num)) return { operator: op, value: num };
+    }
+  }
+  return null;
+}
+
+/**
+ * Split a combined metric+operator+value token like "kanşekeri>100"
+ * Returns { metricName, operator, value } or null.
+ */
+function splitMetricOperatorValue(token: string): {
+  metricName: string; operator: Operator; value: number;
+} | null {
+  // Try each operator (longest first: <=, >= before <, >)
+  for (const op of OPERATORS) {
+    const idx = token.indexOf(op);
+    if (idx > 0) {
+      const namePart = turkishLower(token.slice(0, idx));
+      const valuePart = token.slice(idx + op.length);
+      const num = parseFloat(valuePart);
+      if (isNaN(num)) continue;
+
+      // Resolve metric name
+      const resolved =
+        COMPACT_ALIASES[namePart] ||
+        trNameToKey[namePart] ||
+        (bloodMetricReferences[normalizeMetricName(namePart)] ? normalizeMetricName(namePart) : null);
+
+      if (resolved) {
+        return { metricName: resolved, operator: op, value: num };
+      }
     }
   }
   return null;
@@ -193,6 +245,16 @@ function parseMetricQuery(
 ): SearchFilters["metricQuery"] | undefined {
   if (tokens.length === 0) return undefined;
 
+  // First: try splitting a combined token like "kanşekeri>100" or "hemoglobin>=14"
+  const combined = splitMetricOperatorValue(tokens[0]);
+  if (combined) {
+    return {
+      metricName: combined.metricName,
+      operator: combined.operator,
+      value: combined.value,
+    };
+  }
+
   let metricName: string | undefined;
   let operator: Operator | undefined;
   let value: number | undefined;
@@ -224,11 +286,13 @@ function parseMetricQuery(
     }
   }
 
-  // Single token metric name
+  // Single token metric name (check compact aliases first)
   if (!metricName) {
     const lower = turkishLower(tokens[0]);
-    // Check trName reverse lookup
-    if (trNameToKey[lower]) {
+    if (COMPACT_ALIASES[lower]) {
+      metricName = COMPACT_ALIASES[lower];
+      consumed = 1;
+    } else if (trNameToKey[lower]) {
       metricName = trNameToKey[lower];
       consumed = 1;
     } else {

@@ -17,6 +17,7 @@ import {
   Loader2,
   BarChart3,
   X,
+  Paperclip,
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -217,10 +218,10 @@ function PatientCards({ patients }: { patients: PatientSearchResult[] }) {
         const poll = setInterval(async () => {
           const statusRes = await fetch(`/api/reports?id=${genData.reportId}`);
           const report = await statusRes.json();
-          if (report.status === "completed") {
+          if (report.status === "completed" || report.status === "partial") {
             clearInterval(poll);
             toast.dismiss(`gen-${patient.id}`);
-            toast.success("Rapor hazır!");
+            toast.success(report.status === "partial" ? "Grafikler hazır — özet oluşturuluyor..." : "Rapor hazır!");
             router.push(`/report/${genData.reportId}`);
           } else if (report.status === "failed" || report.status === "no_results") {
             clearInterval(poll);
@@ -327,6 +328,7 @@ interface EmailDetail {
   from?: string;
   date?: string;
   body?: string;
+  pdfPath?: string;
   patientName?: string;
 }
 
@@ -346,15 +348,18 @@ function EmailModal({ email, onClose }: { email: EmailDetail | null; onClose: ()
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="bg-card border border-card-border rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+            className={cn(
+              "bg-card border border-card-border shadow-xl w-full flex flex-col",
+              email.pdfPath ? "max-w-[95vw] h-[92vh] rounded-xl" : "max-w-3xl max-h-[85vh] rounded-2xl"
+            )}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between p-5 border-b border-card-border">
+            <div className="flex items-start justify-between px-5 py-3 border-b border-card-border shrink-0">
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-base truncate">
+                <h3 className="font-semibold text-sm truncate">
                   {email.subject || "(konu yok)"}
                 </h3>
-                <div className="flex items-center gap-2 text-xs text-text-muted mt-1">
+                <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
                   {email.from && <span className="truncate">{email.from}</span>}
                   {email.date && (
                     <>
@@ -368,6 +373,16 @@ function EmailModal({ email, onClose }: { email: EmailDetail | null; onClose: ()
                       <span className="font-medium text-text-secondary">{email.patientName}</span>
                     </>
                   )}
+                  {email.pdfPath && (
+                    <a
+                      href={`/api/emails/${email.id}/pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 text-xs text-primary hover:underline"
+                    >
+                      Yeni sekmede aç
+                    </a>
+                  )}
                 </div>
               </div>
               <button
@@ -377,11 +392,19 @@ function EmailModal({ email, onClose }: { email: EmailDetail | null; onClose: ()
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5 overflow-y-auto">
-              <p className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">
-                {email.body || "İçerik yok"}
-              </p>
-            </div>
+            {email.pdfPath ? (
+              <iframe
+                src={`/api/emails/${email.id}/pdf`}
+                className="w-full flex-1 min-h-0"
+                title="PDF attachment"
+              />
+            ) : (
+              <div className="p-5 overflow-y-auto flex-1 min-h-0">
+                <p className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">
+                  {email.body || "İçerik yok"}
+                </p>
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}

@@ -91,6 +91,7 @@ model Email {
   isLabReport     Boolean       @default(false)
   extractedData   String?
   pdfPath         String?
+  emlPath         String?
   patientId       String?
   patient         Patient?      @relation(fields: [patientId], references: [id])
   reportEmails    ReportEmail[]
@@ -110,6 +111,7 @@ model BloodMetric {
   referenceMin   Float?
   referenceMax   Float?
   isAbnormal     Boolean  @default(false)
+  confidence     String   @default("high")
   measuredAt     DateTime
   patientId      String
   patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -136,8 +138,9 @@ model Report {
   patient         Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
   userId          String
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  trendAlerts     String?
-  pdfPath         String?
+  trendAlerts            String?
+  clinicalCorrelations   String?
+  pdfPath                String?
   reportEmails    ReportEmail[]
   bloodMetrics    BloodMetric[]
   createdAt       DateTime      @default(now())

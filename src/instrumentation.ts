@@ -10,9 +10,10 @@ export async function register() {
 
   const boss = getBoss();
   await boss.start();
-  console.log("[pg-boss] started");
-
   await registerWorkers();
+  // Mark ready so ensureReady() in queue.ts won't double-start
+  (globalThis as Record<string, unknown>).pgBossReady = true;
+  console.log("[pg-boss] started + workers registered");
 
   const shutdown = async () => {
     console.log("[pg-boss] stopping...");

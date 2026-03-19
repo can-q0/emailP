@@ -60,6 +60,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (status !== "authenticated") return;
 
+    // Fast local check first — prevents showing wizard on refresh
+    const localDismissed = localStorage.getItem("emailp_wizard_dismissed");
+
     fetch("/api/onboarding")
       .then((r) => r.json())
       .then((data) => {
@@ -79,10 +82,12 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
           isDemoMode: data.isDemoMode ?? false,
         });
 
-        // Show welcome wizard if not yet onboarded, then immediately mark as shown
-        if (!completed) {
+        // Show welcome wizard only if: DB says not completed AND localStorage doesn't say dismissed
+        if (!completed && !localDismissed) {
           setShowWelcome(true);
-          // Mark as completed in DB so refresh won't show it again
+          // Mark in localStorage immediately (sync, survives refresh)
+          localStorage.setItem("emailp_wizard_dismissed", "1");
+          // Also mark in DB (async, survives across devices)
           fetch("/api/onboarding", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -172,6 +177,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }, [patchOnboarding]);
 
   const resetOnboarding = useCallback(async () => {
+    // Clear localStorage so wizard can show again
+    localStorage.removeItem("emailp_wizard_dismissed");
     setState((s) => ({
       ...s,
       onboardingCompleted: false,
@@ -183,6 +190,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     });
     setIsRestart(true);
     setShowWelcome(true);
+    // Immediately re-dismiss in localStorage so refresh during wizard won't re-show
+    localStorage.setItem("emailp_wizard_dismissed", "1");
   }, [patchOnboarding]);
 
   return (

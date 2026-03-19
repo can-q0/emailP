@@ -52,6 +52,76 @@ export function extractBody(message: gmail_v1.Schema$Message): {
 }
 
 /**
+ * Check if a MIME part is a PDF attachment.
+ * Handles: application/pdf, application/x-pdf, application/octet-stream with .pdf extension,
+ * and any other MIME type with a .pdf filename extension.
+ */
+/** MIME types that indicate a PDF */
+const PDF_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/x-pdf",
+  "application/acrobat",
+  "application/vnd.pdf",
+  "text/pdf",
+  "text/x-pdf",
+]);
+
+function isPdfPart(part: gmail_v1.Schema$MessagePart): boolean {
+  const mime = (part.mimeType || "").toLowerCase();
+  const filename = (part.filename || "").toLowerCase();
+  const hasPdfExtension = filename.endsWith(".pdf");
+
+  // Direct PDF MIME types
+  if (PDF_MIME_TYPES.has(mime)) return true;
+
+  // Generic binary with .pdf extension
+  if (mime === "application/octet-stream" && hasPdfExtension) return true;
+
+  // Any attachment with a .pdf filename (catches edge cases)
+  if (hasPdfExtension && (part.body?.attachmentId || part.body?.data)) return true;
+
+  return false;
+}
+
+/**
+ * Collect ALL attachment-like parts from a message (for debugging).
+ */
+function collectAllAttachments(message: gmail_v1.Schema$Message): Array<{
+  mimeType: string;
+  filename: string | null;
+  attachmentId: string | null;
+  size: number;
+}> {
+  const attachments: Array<{
+    mimeType: string;
+    filename: string | null;
+    attachmentId: string | null;
+    size: number;
+  }> = [];
+
+  function walk(parts: gmail_v1.Schema$MessagePart[] | undefined) {
+    if (!parts) return;
+    for (const part of parts) {
+      // Anything with an attachmentId, filename, or non-text/non-multipart MIME
+      const isAttachment = part.body?.attachmentId || part.filename ||
+        (part.mimeType && !part.mimeType.startsWith("text/") && !part.mimeType.startsWith("multipart/"));
+      if (isAttachment) {
+        attachments.push({
+          mimeType: part.mimeType || "unknown",
+          filename: part.filename || null,
+          attachmentId: part.body?.attachmentId || null,
+          size: part.body?.size || 0,
+        });
+      }
+      if (part.parts) walk(part.parts);
+    }
+  }
+
+  walk(message.payload?.parts);
+  return attachments;
+}
+
+/**
  * Find PDF attachment parts in a Gmail message.
  * Returns array of { filename, attachmentId, data } objects.
  * `data` is set for inline attachments; `attachmentId` for large ones needing a separate fetch.
@@ -72,12 +142,9 @@ export function findPdfParts(
   function walk(parts: gmail_v1.Schema$MessagePart[] | undefined) {
     if (!parts) return;
     for (const part of parts) {
-      if (
-        part.mimeType === "application/pdf" &&
-        part.filename
-      ) {
+      if (isPdfPart(part)) {
         results.push({
-          filename: part.filename,
+          filename: part.filename || "attachment.pdf",
           attachmentId: part.body?.attachmentId ?? null,
           data: part.body?.data ?? null,
         });
@@ -86,7 +153,29 @@ export function findPdfParts(
     }
   }
 
+  // Walk nested parts
   walk(message.payload?.parts);
+
+  // Also check the top-level payload itself (single-part PDF messages)
+  if (results.length === 0 && message.payload && isPdfPart(message.payload)) {
+    results.push({
+      filename: message.payload.filename || "attachment.pdf",
+      attachmentId: message.payload.body?.attachmentId ?? null,
+      data: message.payload.body?.data ?? null,
+    });
+  }
+
+  // Debug: log when we find attachments but none are PDFs
+  if (results.length === 0) {
+    const allAttachments = collectAllAttachments(message);
+    if (allAttachments.length > 0) {
+      console.warn(
+        `[findPdfParts] Message ${message.id} has ${allAttachments.length} attachment(s) but none matched as PDF:`,
+        JSON.stringify(allAttachments)
+      );
+    }
+  }
+
   return results;
 }
 

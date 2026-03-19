@@ -6,6 +6,7 @@ import {
   batchFetchMessages,
   extractMessageMeta,
   fetchAttachment,
+  fetchRawMessage,
   GmailTokenError,
 } from "@/lib/gmail";
 import {
@@ -20,7 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { parseBody, gmailSyncSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { extractPdfText } from "@/lib/pdf";
-import { saveEmailPdf } from "@/lib/pdf-storage";
+import { saveEmailPdf, saveEmailEml } from "@/lib/pdf-storage";
 import { pLimit } from "@/lib/concurrency";
 
 export async function POST(req: NextRequest) {
@@ -73,14 +74,14 @@ export async function POST(req: NextRequest) {
     const messageIds = messageRefs.map((m) => m.id!);
     const existing = await prisma.email.findMany({
       where: { gmailMessageId: { in: messageIds } },
-      select: { id: true, gmailMessageId: true, body: true },
+      select: { id: true, gmailMessageId: true, body: true, pdfPath: true },
     });
     const existingMap = new Map(existing.map((e) => [e.gmailMessageId, e]));
     const newMessageIds = messageIds.filter((id) => !existingMap.has(id));
 
-    // Find existing emails that need PDF re-extraction (empty/short body)
+    // Find existing emails that need re-extraction (empty/short body OR missing PDF)
     const needsReExtraction = existing.filter(
-      (e) => !e.body || e.body.trim().length < 500
+      (e) => !e.body || e.body.trim().length < 500 || !e.pdfPath
     );
     const reExtractIds = needsReExtraction.map((e) => e.gmailMessageId);
 
@@ -121,6 +122,16 @@ export async function POST(req: NextRequest) {
       let pdfText = "";
       let savedPdfPath: string | null = null;
       const pdfParts = findPdfParts(message);
+
+      // Debug: log all attachment parts if no PDFs found
+      if (pdfParts.length === 0 && message.payload?.parts) {
+        const attachments = message.payload.parts
+          .filter((p) => p.filename || p.body?.attachmentId)
+          .map((p) => ({ mime: p.mimeType, filename: p.filename, hasAttachmentId: !!p.body?.attachmentId }));
+        if (attachments.length > 0) {
+          console.log(`[sync] Message ${message.id} has attachments but no PDF detected:`, JSON.stringify(attachments));
+        }
+      }
       for (const part of pdfParts) {
         try {
           let raw: string;
@@ -188,7 +199,16 @@ export async function POST(req: NextRequest) {
           })
         : null;
 
-      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath };
+      // Save full email as .eml (raw RFC 2822 with attachments)
+      let savedEmlPath: string | null = null;
+      try {
+        const rawBuffer = await fetchRawMessage(gmail, message.id!);
+        savedEmlPath = await saveEmailEml(userId, message.id!, rawBuffer);
+      } catch (emlErr) {
+        console.error("EML save error for message", message.id, emlErr);
+      }
+
+      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath, savedEmlPath };
     };
 
     // Process all messages in parallel (concurrency=5)
@@ -202,7 +222,7 @@ export async function POST(req: NextRequest) {
         console.error("Message processing failed:", result.reason);
         continue;
       }
-      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath } = result.value;
+      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath, savedEmlPath } = result.value;
 
       if (reExtractIdSet.has(message.id!)) {
         const existingEmail = existingMap.get(message.id!)!;
@@ -216,6 +236,7 @@ export async function POST(req: NextRequest) {
             date: emailDate ?? undefined,
             patientId: patientId ?? undefined,
             pdfPath: savedPdfPath ?? undefined,
+            emlPath: savedEmlPath ?? undefined,
           },
         });
         const updated = await prisma.email.findUnique({ where: { id: existingEmail.id } });
@@ -230,11 +251,36 @@ export async function POST(req: NextRequest) {
             isLabReport,
             extractedData,
             pdfPath: savedPdfPath,
+            emlPath: savedEmlPath,
             userId,
             patientId: patientId ?? null,
           },
         });
         emails.push(email);
+      }
+    }
+
+    // Update patient name with the most complete name found in email metadata
+    if (patientId) {
+      const bestName = processed
+        .filter((r) => r.status === "fulfilled" && r.value.extractedData)
+        .map((r) => {
+          try {
+            const data = JSON.parse((r as PromiseFulfilledResult<typeof processed[0] extends PromiseSettledResult<infer T> ? T : never>).value.extractedData!);
+            return data.patientName as string | undefined;
+          } catch { return undefined; }
+        })
+        .filter((n): n is string => !!n)
+        .sort((a, b) => b.length - a.length)[0]; // longest = most complete name
+
+      if (bestName && bestName.trim().split(/\s+/).length >= 2) {
+        const currentPatient = await prisma.patient.findUnique({ where: { id: patientId }, select: { name: true } });
+        if (currentPatient && bestName.length > currentPatient.name.length) {
+          await prisma.patient.update({
+            where: { id: patientId },
+            data: { name: bestName },
+          });
+        }
       }
     }
 
@@ -317,7 +363,7 @@ export async function POST(req: NextRequest) {
         error: error instanceof Error ? error.message : "Unknown error",
       },
     });
-    if (error instanceof GmailTokenError) {
+    if (error instanceof GmailTokenError || (error instanceof Error && error.name === "GmailTokenError")) {
       return NextResponse.json(
         { error: "gmail_token_expired", message: error.message },
         { status: 401 }

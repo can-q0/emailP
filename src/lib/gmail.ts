@@ -19,8 +19,12 @@ export async function getGmailClient(userId: string): Promise<gmail_v1.Gmail> {
     where: { userId, provider: "google" },
   });
 
-  if (!account?.access_token) {
+  if (!account) {
     throw new GmailTokenError("No Google account linked. Please reconnect your Google account.");
+  }
+
+  if (!account.access_token && !account.refresh_token) {
+    throw new GmailTokenError("No Google credentials found. Please reconnect your Google account.");
   }
 
   oauth2Client.setCredentials({
@@ -28,8 +32,14 @@ export async function getGmailClient(userId: string): Promise<gmail_v1.Gmail> {
     refresh_token: account.refresh_token,
   });
 
-  // Check if token is expired and refresh
-  if (account.expires_at && account.expires_at * 1000 < Date.now()) {
+  // Refresh if token is missing or expired
+  const needsRefresh = !account.access_token
+    || (account.expires_at && account.expires_at * 1000 < Date.now());
+
+  if (needsRefresh) {
+    if (!account.refresh_token) {
+      throw new GmailTokenError("Gmail session expired. Please reconnect your Google account.");
+    }
     try {
       const { credentials } = await oauth2Client.refreshAccessToken();
       oauth2Client.setCredentials(credentials);
@@ -128,6 +138,19 @@ export async function fetchAttachment(
     id: attachmentId,
   });
   return res.data.data || "";
+}
+
+export async function fetchRawMessage(
+  gmail: gmail_v1.Gmail,
+  messageId: string
+): Promise<Buffer> {
+  const res = await gmail.users.messages.get({
+    userId: "me",
+    id: messageId,
+    format: "raw",
+  });
+  const raw = res.data.raw || "";
+  return Buffer.from(raw, "base64url");
 }
 
 export function extractMessageMeta(message: gmail_v1.Schema$Message) {
