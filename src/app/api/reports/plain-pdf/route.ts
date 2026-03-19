@@ -105,11 +105,11 @@ export async function GET(req: NextRequest) {
     include: { patient: true },
   });
 
-  if (!report || report.reportType !== "plain PDF" || !report.pdfPath) {
+  if (!report || report.reportType !== "plain PDF" || !report.pdfData) {
     return NextResponse.json({ error: "PDF not found" }, { status: 404 });
   }
 
-  const pdfBuffer = await readPdf(report.pdfPath);
+  const pdfBuffer = Buffer.from(report.pdfData);
   const filename = `${report.patient.name.replace(/[^a-zA-Z0-9]/g, "_")}_merged.pdf`;
 
   return new NextResponse(new Uint8Array(pdfBuffer), {

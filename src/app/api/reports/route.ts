@@ -85,9 +85,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
   }
 
-  // Delete PDF from disk if it exists
-  if (report.pdfPath) {
-    await deletePdf(report.pdfPath);
+  // Clear PDF data
+  if (report.pdfData) {
+    await deletePdf(report.id);
   }
 
   // Delete blood metrics tied to this report (no cascade on that relation)

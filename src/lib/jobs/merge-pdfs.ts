@@ -2,19 +2,19 @@ import { prisma } from "@/lib/prisma";
 import { getGmailClient, fetchGmailMessage, fetchAttachment, GmailTokenError } from "@/lib/gmail";
 import { findPdfParts, decodeBase64UrlToBuffer } from "@/lib/email-parser";
 import { PDFDocument } from "pdf-lib";
-import { savePdf, readEmailPdf } from "@/lib/pdf-storage";
+import { savePdf } from "@/lib/pdf-storage";
 import type { MergePdfsPayload } from "@/lib/queue";
 
 export async function mergePdfs(payload: MergePdfsPayload) {
   const { reportId, emails, userId } = payload;
 
   try {
-    // Look up cached pdfPaths for these emails
+    // Look up cached pdfData for these emails
     const emailRecords = await prisma.email.findMany({
       where: { id: { in: emails.map((e) => e.id) } },
-      select: { id: true, pdfPath: true },
+      select: { id: true, pdfData: true },
     });
-    const pdfPathMap = new Map(emailRecords.map((e) => [e.id, e.pdfPath]));
+    const pdfDataMap = new Map(emailRecords.map((e) => [e.id, e.pdfData]));
 
     let gmail: Awaited<ReturnType<typeof getGmailClient>> | null = null;
     let gmailAuthFailed = false;
@@ -23,11 +23,11 @@ export async function mergePdfs(payload: MergePdfsPayload) {
 
     for (const email of emails) {
       try {
-        // Try cached PDF first
-        const cachedPath = pdfPathMap.get(email.id);
-        if (cachedPath) {
-          const cachedBuffer = await readEmailPdf(cachedPath);
-          if (cachedBuffer) {
+        // Try cached PDF from DB first
+        const cachedData = pdfDataMap.get(email.id);
+        if (cachedData) {
+          const cachedBuffer = Buffer.from(cachedData);
+          if (cachedBuffer.length > 0) {
             try {
               const sourcePdf = await PDFDocument.load(cachedBuffer);
               const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());

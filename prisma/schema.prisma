@@ -91,7 +91,9 @@ model Email {
   isLabReport     Boolean       @default(false)
   extractedData   String?
   pdfPath         String?
+  pdfData         Bytes?
   emlPath         String?
+  emlData         Bytes?
   patientId       String?
   patient         Patient?      @relation(fields: [patientId], references: [id])
   reportEmails    ReportEmail[]
@@ -141,6 +143,7 @@ model Report {
   trendAlerts            String?
   clinicalCorrelations   String?
   pdfPath                String?
+  pdfData                Bytes?
   reportEmails    ReportEmail[]
   bloodMetrics    BloodMetric[]
   createdAt       DateTime      @default(now())

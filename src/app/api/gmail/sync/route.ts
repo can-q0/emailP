@@ -21,7 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { parseBody, gmailSyncSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { extractPdfText } from "@/lib/pdf";
-import { saveEmailPdf, saveEmailEml } from "@/lib/pdf-storage";
+// PDF/EML data stored directly in email records (pdfData/emlData columns)
 import { pLimit } from "@/lib/concurrency";
 
 export async function POST(req: NextRequest) {
@@ -118,20 +118,12 @@ export async function POST(req: NextRequest) {
       const meta = extractMessageMeta(message);
       const { text, html } = extractBody(message);
 
-      // Extract PDF text from attachment and cache PDFs
+      // Extract PDF text from attachment and hold buffer for DB storage
       let pdfText = "";
-      let savedPdfPath: string | null = null;
+      let pdfBuffer: Buffer | null = null;
+      let pdfFilename: string | null = null;
       const pdfParts = findPdfParts(message);
 
-      // Debug: log all attachment parts if no PDFs found
-      if (pdfParts.length === 0 && message.payload?.parts) {
-        const attachments = message.payload.parts
-          .filter((p) => p.filename || p.body?.attachmentId)
-          .map((p) => ({ mime: p.mimeType, filename: p.filename, hasAttachmentId: !!p.body?.attachmentId }));
-        if (attachments.length > 0) {
-          console.log(`[sync] Message ${message.id} has attachments but no PDF detected:`, JSON.stringify(attachments));
-        }
-      }
       for (const part of pdfParts) {
         try {
           let raw: string;
@@ -145,14 +137,9 @@ export async function POST(req: NextRequest) {
           const buffer = decodeBase64UrlToBuffer(raw);
           pdfText += await extractPdfText(buffer) + "\n";
 
-          // Cache the first PDF to disk
-          if (!savedPdfPath) {
-            try {
-              const filename = part.filename || `${message.id}.pdf`;
-              savedPdfPath = await saveEmailPdf(userId, message.id!, filename, buffer);
-            } catch (cacheErr) {
-              console.error("PDF cache error for message", message.id, cacheErr);
-            }
+          if (!pdfBuffer) {
+            pdfBuffer = buffer;
+            pdfFilename = part.filename || `${message.id}.pdf`;
           }
         } catch (err) {
           console.error("PDF parse error for message", message.id, err);
@@ -199,16 +186,15 @@ export async function POST(req: NextRequest) {
           })
         : null;
 
-      // Save full email as .eml (raw RFC 2822 with attachments)
-      let savedEmlPath: string | null = null;
+      // Fetch raw .eml
+      let emlBuffer: Buffer | null = null;
       try {
-        const rawBuffer = await fetchRawMessage(gmail, message.id!);
-        savedEmlPath = await saveEmailEml(userId, message.id!, rawBuffer);
+        emlBuffer = await fetchRawMessage(gmail, message.id!);
       } catch (emlErr) {
-        console.error("EML save error for message", message.id, emlErr);
+        console.error("EML fetch error for message", message.id, emlErr);
       }
 
-      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath, savedEmlPath };
+      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer };
     };
 
     // Process all messages in parallel (concurrency=5)
@@ -222,7 +208,7 @@ export async function POST(req: NextRequest) {
         console.error("Message processing failed:", result.reason);
         continue;
       }
-      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath, savedEmlPath } = result.value;
+      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer } = result.value;
 
       if (reExtractIdSet.has(message.id!)) {
         const existingEmail = existingMap.get(message.id!)!;
@@ -235,8 +221,8 @@ export async function POST(req: NextRequest) {
             extractedData,
             date: emailDate ?? undefined,
             patientId: patientId ?? undefined,
-            pdfPath: savedPdfPath ?? undefined,
-            emlPath: savedEmlPath ?? undefined,
+            ...(pdfBuffer ? { pdfData: new Uint8Array(pdfBuffer), pdfPath: pdfFilename } : {}),
+            ...(emlBuffer ? { emlData: new Uint8Array(emlBuffer), emlPath: `${message.id}.eml` } : {}),
           },
         });
         const updated = await prisma.email.findUnique({ where: { id: existingEmail.id } });
@@ -250,8 +236,10 @@ export async function POST(req: NextRequest) {
             htmlBody: html,
             isLabReport,
             extractedData,
-            pdfPath: savedPdfPath,
-            emlPath: savedEmlPath,
+            pdfPath: pdfFilename,
+            pdfData: pdfBuffer ? new Uint8Array(pdfBuffer) : null,
+            emlPath: emlBuffer ? `${message.id}.eml` : null,
+            emlData: emlBuffer ? new Uint8Array(emlBuffer) : null,
             userId,
             patientId: patientId ?? null,
           },

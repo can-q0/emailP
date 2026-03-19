@@ -20,7 +20,7 @@ import {
   decodeBase64UrlToBuffer,
 } from "@/lib/email-parser";
 import { extractPdfText } from "@/lib/pdf";
-import { saveEmailPdf, saveEmailEml } from "@/lib/pdf-storage";
+// PDF/EML data stored directly in email records (pdfData/emlData columns)
 import { pLimit } from "@/lib/concurrency";
 
 export async function POST(req: NextRequest) {
@@ -123,7 +123,8 @@ export async function POST(req: NextRequest) {
           const { text, html } = extractBody(message);
 
           let pdfText = "";
-          let savedPdfPath: string | null = null;
+          let pdfBuffer: Buffer | null = null;
+          let pdfFilename: string | null = null;
           const pdfParts = findPdfParts(message);
           for (const part of pdfParts) {
             try {
@@ -137,13 +138,9 @@ export async function POST(req: NextRequest) {
               }
               const buffer = decodeBase64UrlToBuffer(raw);
               pdfText += await extractPdfText(buffer) + "\n";
-              if (!savedPdfPath) {
-                try {
-                  const filename = part.filename || `${message.id}.pdf`;
-                  savedPdfPath = await saveEmailPdf(userId, message.id!, filename, buffer);
-                } catch (cacheErr) {
-                  console.error("[cache-sync] PDF cache error:", message.id, cacheErr);
-                }
+              if (!pdfBuffer) {
+                pdfBuffer = buffer;
+                pdfFilename = part.filename || `${message.id}.pdf`;
               }
             } catch (err) {
               console.error("[cache-sync] PDF parse error:", message.id, err);
@@ -189,13 +186,12 @@ export async function POST(req: NextRequest) {
               })
             : null;
 
-          let savedEmlPath: string | null = null;
+          let emlBuffer: Buffer | null = null;
           try {
-            const rawBuffer = await fetchRawMessage(gmail, message.id!);
-            savedEmlPath = await saveEmailEml(userId, message.id!, rawBuffer);
+            emlBuffer = await fetchRawMessage(gmail, message.id!);
           } catch { /* ignore */ }
 
-          return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath, savedEmlPath };
+          return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer };
         };
 
         const processed = await Promise.allSettled(
@@ -204,7 +200,7 @@ export async function POST(req: NextRequest) {
 
         for (const result of processed) {
           if (result.status !== "fulfilled") continue;
-          const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, savedPdfPath } = result.value;
+          const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer } = result.value;
 
           if (reExtractIdSet.has(message.id!)) {
             const existingEmail = existingMap.get(message.id!)!;
@@ -217,7 +213,8 @@ export async function POST(req: NextRequest) {
                 extractedData,
                 date: emailDate ?? undefined,
                 patientId: patient.id,
-                pdfPath: savedPdfPath ?? undefined,
+                ...(pdfBuffer ? { pdfData: new Uint8Array(pdfBuffer), pdfPath: pdfFilename } : {}),
+                ...(emlBuffer ? { emlData: new Uint8Array(emlBuffer), emlPath: `${message.id}.eml` } : {}),
               },
             });
           } else {
@@ -229,7 +226,10 @@ export async function POST(req: NextRequest) {
                 htmlBody: html,
                 isLabReport,
                 extractedData,
-                pdfPath: savedPdfPath,
+                pdfPath: pdfFilename,
+                pdfData: pdfBuffer ? new Uint8Array(pdfBuffer) : null,
+                emlPath: emlBuffer ? `${message.id}.eml` : null,
+                emlData: emlBuffer ? new Uint8Array(emlBuffer) : null,
                 userId,
                 patientId: patient.id,
               },
