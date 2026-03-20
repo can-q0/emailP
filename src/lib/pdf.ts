@@ -1,8 +1,7 @@
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-
 const OCR_TEXT_THRESHOLD = 50;
 
 export async function extractPdfText(buffer: Buffer): Promise<string> {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(buffer);
   const doc = await getDocument({ data, useSystemFonts: true }).promise;
 

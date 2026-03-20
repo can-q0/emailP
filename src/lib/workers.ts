@@ -1,7 +1,5 @@
 import { getBoss } from "@/lib/queue";
 import type { GenerateReportPayload, MergePdfsPayload } from "@/lib/queue";
-import { processReport } from "@/lib/jobs/process-report";
-import { mergePdfs } from "@/lib/jobs/merge-pdfs";
 
 export async function registerWorkers() {
   const boss = getBoss();
@@ -10,6 +8,7 @@ export async function registerWorkers() {
     "generate-report",
     { batchSize: 2 },
     async (jobs) => {
+      const { processReport } = await import("@/lib/jobs/process-report");
       for (const job of jobs) {
         console.log(`[worker] generate-report job ${job.id} started`);
         await processReport(job.data);
@@ -22,6 +21,7 @@ export async function registerWorkers() {
     "merge-pdfs",
     { batchSize: 3 },
     async (jobs) => {
+      const { mergePdfs } = await import("@/lib/jobs/merge-pdfs");
       for (const job of jobs) {
         console.log(`[worker] merge-pdfs job ${job.id} started`);
         await mergePdfs(job.data);
