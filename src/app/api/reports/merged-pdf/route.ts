@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PDFDocument } from "pdf-lib";
-import { readEmailPdf } from "@/lib/pdf-storage";
 
 /**
  * GET /api/reports/merged-pdf?id=reportId
@@ -26,7 +25,7 @@ export async function GET(req: NextRequest) {
         patient: { select: { name: true } },
         reportEmails: {
           include: {
-            email: { select: { id: true, pdfPath: true, subject: true, date: true } },
+            email: { select: { id: true, pdfData: true, pdfPath: true, subject: true, date: true } },
           },
         },
       },
@@ -36,11 +35,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Report not found" }, { status: 404 });
     }
 
-    // Collect emails with PDFs, sorted by date
+    // Collect emails with PDF data, sorted by date
     const emailsWithPdf = report.reportEmails
       .map((re) => re.email)
-      .filter((e) => e.pdfPath)
-      .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+      .filter((e) => e.pdfData)
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
     if (emailsWithPdf.length === 0) {
       return NextResponse.json({ error: "No PDFs found for this report" }, { status: 404 });
@@ -50,11 +49,7 @@ export async function GET(req: NextRequest) {
 
     for (const email of emailsWithPdf) {
       try {
-        const buffer = await readEmailPdf(email.pdfPath!);
-        if (!buffer) {
-          console.warn(`[merged-pdf] No buffer for email ${email.id}, path: ${email.pdfPath}`);
-          continue;
-        }
+        const buffer = Buffer.from(email.pdfData!);
         const sourcePdf = await PDFDocument.load(buffer);
         const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
         for (const page of pages) mergedPdf.addPage(page);
@@ -68,8 +63,8 @@ export async function GET(req: NextRequest) {
     }
 
     const pdfBytes = await mergedPdf.save();
-    const patientName = report.patient.name.replace(/[^a-zA-ZÇçĞğİıÖöŞşÜü0-9]/g, "_");
-    const filename = `${patientName}_lab_results.pdf`;
+    const safeName = report.patient.name.replace(/[^a-zA-Z0-9]/g, "_");
+    const filename = `${safeName}_lab_results.pdf`;
 
     return new NextResponse(new Uint8Array(pdfBytes), {
       headers: {

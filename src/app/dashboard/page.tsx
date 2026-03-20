@@ -29,7 +29,6 @@ import {
   ArrowRight,
   Activity,
   Sparkles,
-  Mail,
   BarChart3,
   X,
   Loader2,
@@ -37,11 +36,7 @@ import {
   FlaskConical,
   Database,
   PenLine,
-  GitCompareArrows,
   Paperclip,
-  LayoutList,
-  Columns2,
-  LayoutDashboard,
 } from "lucide-react";
 import { formatDistanceToNow, format as formatDate } from "date-fns";
 import { GmailReconnectBanner } from "@/components/gmail-reconnect-banner";
@@ -60,15 +55,7 @@ const REPORT_STEPS = [
 
 const REPORT_TYPES = [
   { value: "detailed report", label: "Full Analysis", icon: BarChart3, desc: "AI summary + charts + attention points + emails", badge: "Recommended" },
-  { value: "all emails", label: "Email Focus", icon: Mail, desc: "Email list first, brief summary — no charts", badge: null },
-  { value: "comparison", label: "Date Compare", icon: GitCompareArrows, desc: "Pick 2 dates — delta % and trend arrows", badge: null },
   { value: "plain PDF", label: "PDF Merge", icon: Paperclip, desc: "Download combined PDF — no AI", badge: "Fast" },
-];
-
-const FORMATS = [
-  { value: "summary", label: "Compact", icon: LayoutList, desc: "Single column, mini charts" },
-  { value: "detailed", label: "Full Page", icon: Columns2, desc: "Sidebar nav, large charts" },
-  { value: "graphical", label: "Dashboard", icon: LayoutDashboard, desc: "Grid layout, sparklines" },
 ];
 
 function InitialsAvatar({ name, className }: { name: string; className?: string }) {
@@ -556,35 +543,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
 
-                        {/* Format — hide for plain PDF */}
-                        <AnimatePresence>
-                          {reportType !== "plain PDF" && (
-                            <motion.div
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: "auto" }}
-                              exit={{ opacity: 0, height: 0 }}
-                            >
-                              <p className="text-xs font-medium text-text-muted mb-2">Layout</p>
-                              <div className="grid grid-cols-3 gap-1.5">
-                                {FORMATS.map((f) => (
-                                  <button
-                                    key={f.value}
-                                    onClick={() => setFormat(f.value)}
-                                    className={cn(
-                                      "flex flex-col items-center gap-1 p-2 rounded-xl text-center transition-all cursor-pointer",
-                                      format === f.value
-                                        ? "bg-primary text-white"
-                                        : "border border-card-border text-text-secondary hover:border-foreground/20"
-                                    )}
-                                  >
-                                    <f.icon className={cn("w-3.5 h-3.5", format === f.value ? "text-white" : "text-text-muted")} />
-                                    <span className="text-[10px] font-medium">{f.label}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                        {/* Layout always "detailed" (Full Page) */}
 
                         {/* Generate button */}
                         <Button

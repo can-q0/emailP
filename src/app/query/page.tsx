@@ -28,20 +28,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { BarChart3, GitCompareArrows, Paperclip, LayoutList, Columns2, LayoutDashboard } from "lucide-react";
+import { BarChart3, Paperclip } from "lucide-react";
 
 const REPORT_TYPES = [
   { value: "detailed report", label: "Full Analysis", icon: BarChart3, desc: "AI summary + charts + attention points + emails", badge: "Recommended" },
-  { value: "all emails", label: "Email Focus", icon: Mail, desc: "Email list first, brief summary — no metric charts", badge: null },
-  { value: "comparison", label: "Date Compare", icon: GitCompareArrows, desc: "Pick 2 test dates — see delta % and trend arrows", badge: null },
   { value: "plain PDF", label: "PDF Merge", icon: Paperclip, desc: "Download combined PDF — no AI processing", badge: "Fast" },
 ];
 
-const FORMATS = [
-  { value: "summary", label: "Compact", icon: LayoutList, desc: "Single column, mini charts" },
-  { value: "detailed", label: "Full Page", icon: Columns2, desc: "Sidebar nav, large charts" },
-  { value: "graphical", label: "Dashboard", icon: LayoutDashboard, desc: "Grid layout, sparklines" },
-];
+// Default format is "detailed" (Full Page) — no user selection needed
 
 function QueryPageContent() {
   const { data: session, status } = useSession();
@@ -369,38 +363,7 @@ function QueryPageContent() {
                     </div>
                   </div>
 
-                  {/* Format — hide for plain PDF */}
-                  <AnimatePresence>
-                    {reportType !== "plain PDF" && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mb-6"
-                      >
-                        <p className="text-sm font-medium mb-2.5">Layout</p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {FORMATS.map((f) => (
-                            <motion.button
-                              key={f.value}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => setFormat(f.value)}
-                              className={cn(
-                                "flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-all cursor-pointer",
-                                format === f.value
-                                  ? "bg-primary text-white"
-                                  : "border border-card-border text-text-secondary hover:border-foreground/20"
-                              )}
-                            >
-                              <f.icon className={cn("w-4 h-4", format === f.value ? "text-white" : "text-text-muted")} />
-                              <span className="text-xs font-medium">{f.label}</span>
-                              <span className={cn("text-[10px] leading-tight", format === f.value ? "text-white/70" : "text-text-muted")}>{f.desc}</span>
-                            </motion.button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  {/* Layout selection removed — always uses "detailed" (Full Page) */}
 
                   {/* Generate button */}
                   <Button

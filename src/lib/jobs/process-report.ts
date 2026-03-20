@@ -7,7 +7,6 @@ import { normalizeMetricName, getMetricReference, getAdjustedRange } from "@/lib
 import { bloodMetricReferences } from "@/config/blood-metrics";
 import { detectClinicalCorrelations } from "@/lib/clinical-correlations";
 import { sendReportEmail } from "@/lib/resend";
-import { readEmailPdf } from "@/lib/pdf-storage";
 import { extractPdfText } from "@/lib/pdf";
 import type { GenerateReportPayload } from "@/lib/queue";
 import type { TrendAlert, TrendReading } from "@/types";
@@ -304,29 +303,27 @@ export async function processReport(payload: GenerateReportPayload) {
     // Enrich emails that have a cached PDF but short/missing body text
     const emailRecords = await prisma.email.findMany({
       where: { id: { in: parsedEmails.map((e) => e.id) } },
-      select: { id: true, pdfPath: true },
+      select: { id: true, pdfData: true },
     });
-    const pdfPathById = new Map(emailRecords.map((r) => [r.id, r.pdfPath]));
-    console.log(`[process-report] Found ${emailRecords.filter((r) => r.pdfPath).length}/${emailRecords.length} emails with cached PDFs`);
+    const pdfDataById = new Map(emailRecords.map((r) => [r.id, r.pdfData]));
+    console.log(`[process-report] Found ${emailRecords.filter((r) => r.pdfData).length}/${emailRecords.length} emails with cached PDFs`);
 
     for (const email of parsedEmails) {
       const bodyLen = email.body?.trim().length || 0;
-      const pdfPath = pdfPathById.get(email.id);
-      console.log(`[process-report] Email ${email.id.slice(0, 12)}: bodyLen=${bodyLen}, pdfPath=${pdfPath ? 'yes' : 'no'}`);
+      const pdfData = pdfDataById.get(email.id);
+      console.log(`[process-report] Email ${email.id.slice(0, 12)}: bodyLen=${bodyLen}, pdfData=${pdfData ? 'yes' : 'no'}`);
 
       if (bodyLen > 500) continue;
-      if (!pdfPath) continue;
+      if (!pdfData) continue;
 
       try {
-        const buffer = await readEmailPdf(pdfPath);
-        console.log(`[process-report] PDF read: ${buffer ? buffer.length + ' bytes' : 'null'}`);
-        if (buffer) {
-          const pdfText = await extractPdfText(buffer);
-          console.log(`[process-report] PDF text extracted: ${pdfText.length} chars`);
-          if (pdfText && pdfText.trim().length > 50) {
-            email.body = [pdfText, email.body].filter(Boolean).join("\n\n---\n\n");
-            console.log(`[process-report] Enriched email ${email.id.slice(0, 12)} with ${pdfText.length} chars of PDF text`);
-          }
+        const buffer = Buffer.from(pdfData);
+        console.log(`[process-report] PDF read: ${buffer.length} bytes`);
+        const pdfText = await extractPdfText(buffer);
+        console.log(`[process-report] PDF text extracted: ${pdfText.length} chars`);
+        if (pdfText && pdfText.trim().length > 50) {
+          email.body = [pdfText, email.body].filter(Boolean).join("\n\n---\n\n");
+          console.log(`[process-report] Enriched email ${email.id.slice(0, 12)} with ${pdfText.length} chars of PDF text`);
         }
       } catch (err) {
         console.error(`[process-report] PDF enrichment failed for ${email.id}:`, err);

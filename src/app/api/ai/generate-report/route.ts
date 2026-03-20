@@ -5,7 +5,6 @@ import { parseBody, generateReportSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { getOrCreateSettings } from "@/lib/settings";
 import { processReport } from "@/lib/jobs/process-report";
-import { readEmailPdf } from "@/lib/pdf-storage";
 import { extractPdfText } from "@/lib/pdf";
 
 export async function POST(req: NextRequest) {
@@ -51,14 +50,14 @@ export async function POST(req: NextRequest) {
       let body = e.body;
 
       // If body is short/missing but we have a cached PDF, extract text from it
-      if ((!body || body.trim().length < 500) && e.pdfPath) {
+      if ((!body || body.trim().length < 500) && e.pdfData) {
         try {
-          const buffer = await readEmailPdf(e.pdfPath);
-          if (buffer) {
+          const buffer = Buffer.from(e.pdfData);
+          if (buffer.length > 0) {
             const pdfText = await extractPdfText(buffer);
             if (pdfText && pdfText.trim().length > 50) {
               body = [pdfText, body].filter(Boolean).join("\n\n---\n\n");
-              console.log(`[generate-report] Enriched email ${e.id.slice(0, 12)} with ${pdfText.length} chars from cached PDF`);
+              console.log(`[generate-report] Enriched email ${e.id.slice(0, 12)} with ${pdfText.length} chars from DB PDF`);
 
               // Also update the DB so future requests don't need to re-extract
               await prisma.email.update({

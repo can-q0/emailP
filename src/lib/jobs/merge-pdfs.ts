@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma";
 import { getGmailClient, fetchGmailMessage, fetchAttachment, GmailTokenError } from "@/lib/gmail";
 import { findPdfParts, decodeBase64UrlToBuffer } from "@/lib/email-parser";
 import { PDFDocument } from "pdf-lib";
-import { savePdf } from "@/lib/pdf-storage";
 import type { MergePdfsPayload } from "@/lib/queue";
 
 export async function mergePdfs(payload: MergePdfsPayload) {
@@ -111,12 +110,13 @@ export async function mergePdfs(payload: MergePdfsPayload) {
     }
 
     const pdfBytes = await mergedPdf.save();
-    const pdfPath = await savePdf(reportId, pdfBytes);
+    const pdfBuffer = Buffer.from(pdfBytes);
 
     await prisma.report.update({
       where: { id: reportId },
       data: {
-        pdfPath,
+        pdfData: new Uint8Array(pdfBuffer),
+        pdfPath: `merged_${reportId}.pdf`,
         status: "completed",
         step: null,
       },
