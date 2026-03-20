@@ -55,12 +55,15 @@ export function getBoss(): PgBoss {
 async function ensureReady(): Promise<PgBoss> {
   const boss = getBoss();
   if (!globalForBoss.pgBossReady) {
-    await boss.start();
-    // Dynamically import workers to avoid circular deps
-    const { registerWorkers } = await import("@/lib/workers");
-    await registerWorkers();
-    globalForBoss.pgBossReady = true;
-    console.log("[queue] pg-boss started + workers registered");
+    try {
+      await boss.start();
+      const { registerWorkers } = await import("@/lib/workers");
+      await registerWorkers();
+      globalForBoss.pgBossReady = true;
+      console.log("[queue] pg-boss started + workers registered");
+    } catch (err) {
+      console.warn("[queue] pg-boss failed to start:", err);
+    }
   }
   return boss;
 }
