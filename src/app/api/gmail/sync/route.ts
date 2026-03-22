@@ -3,26 +3,14 @@ import { auth } from "@/auth";
 import {
   getGmailClient,
   searchGmailMessages,
-  batchFetchMessages,
+  batchFetchMetadata,
   extractMessageMeta,
-  fetchAttachment,
-  fetchRawMessage,
   GmailTokenError,
 } from "@/lib/gmail";
-import {
-  extractBody,
-  findPdfParts,
-  parseLabSubject,
-  parseForwardingHeaders,
-  parsePdfMetadata,
-  decodeBase64UrlToBuffer,
-} from "@/lib/email-parser";
+import { parseLabSubject } from "@/lib/email-parser";
 import { prisma } from "@/lib/prisma";
 import { parseBody, gmailSyncSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
-import { extractPdfText } from "@/lib/pdf";
-// PDF/EML data stored directly in email records (pdfData/emlData columns)
-import { pLimit } from "@/lib/concurrency";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -55,6 +43,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const gmail = await getGmailClient(userId);
+
+    // Paginated search — returns ALL matching message IDs
     const messageRefs = await searchGmailMessages(gmail, query);
 
     await prisma.emailSyncLog.update({
@@ -67,27 +57,17 @@ export async function POST(req: NextRequest) {
         where: { id: syncLog.id },
         data: { status: "completed", emailsSynced: 0 },
       });
-      return NextResponse.json({ synced: 0, emails: [] });
+      return NextResponse.json({ synced: 0, total: 0, emails: [] });
     }
 
-    // Check which messages are already synced
+    // Check which messages are already in DB
     const messageIds = messageRefs.map((m) => m.id!);
     const existing = await prisma.email.findMany({
       where: { gmailMessageId: { in: messageIds } },
-      select: { id: true, gmailMessageId: true, body: true, pdfPath: true },
+      select: { id: true, gmailMessageId: true },
     });
-    const existingMap = new Map(existing.map((e) => [e.gmailMessageId, e]));
-    const newMessageIds = messageIds.filter((id) => !existingMap.has(id));
-
-    // Find existing emails that need re-extraction (empty/short body OR missing PDF)
-    const needsReExtraction = existing.filter(
-      (e) => !e.body || e.body.trim().length < 500 || !e.pdfPath
-    );
-    const reExtractIds = needsReExtraction.map((e) => e.gmailMessageId);
-
-    // Fetch new messages + messages needing re-extraction
-    const idsToFetch = [...newMessageIds, ...reExtractIds];
-    const fullMessages = await batchFetchMessages(gmail, idsToFetch);
+    const existingSet = new Set(existing.map((e) => e.gmailMessageId));
+    const newMessageIds = messageIds.filter((id) => !existingSet.has(id));
 
     // Find or create patient if name provided
     let patientId: string | undefined;
@@ -109,221 +89,109 @@ export async function POST(req: NextRequest) {
       patientId = patient.id;
     }
 
-    // Process all fetched messages — extract PDF text and parse subject (parallel)
-    const emails = [];
-    const reExtractIdSet = new Set(reExtractIds);
-    const processLimit = pLimit(5);
+    // Fetch ONLY metadata (subject/from/to/date) for new messages — no body, no PDF, no EML
+    let newlySynced = 0;
+    if (newMessageIds.length > 0) {
+      const metadataMessages = await batchFetchMetadata(gmail, newMessageIds);
 
-    const processMessage = async (message: (typeof fullMessages)[number]) => {
-      const meta = extractMessageMeta(message);
-      const { text, html } = extractBody(message);
+      for (const message of metadataMessages) {
+        const meta = extractMessageMeta(message);
 
-      // Extract PDF text from attachment and hold buffer for DB storage
-      let pdfText = "";
-      let pdfBuffer: Buffer | null = null;
-      let pdfFilename: string | null = null;
-      const pdfParts = findPdfParts(message);
+        // Parse subject for patient info
+        const subjectInfo = meta.subject ? parseLabSubject(meta.subject) : null;
+        const isLabReport = !!subjectInfo;
 
-      for (const part of pdfParts) {
-        try {
-          let raw: string;
-          if (part.data) {
-            raw = part.data;
-          } else if (part.attachmentId) {
-            raw = await fetchAttachment(gmail, message.id!, part.attachmentId);
-          } else {
-            continue;
-          }
-          const buffer = decodeBase64UrlToBuffer(raw);
-          pdfText += await extractPdfText(buffer) + "\n";
+        const resolvedName = subjectInfo?.patientName ?? null;
+        const resolvedGender = subjectInfo?.gender ?? null;
+        const resolvedBirthYear = subjectInfo?.birthYear ?? null;
 
-          if (!pdfBuffer) {
-            pdfBuffer = buffer;
-            pdfFilename = part.filename || `${message.id}.pdf`;
-          }
-        } catch (err) {
-          console.error("PDF parse error for message", message.id, err);
-        }
-      }
+        const emailDate = subjectInfo?.date ?? meta.date ?? null;
 
-      // --- Cascading metadata extraction ---
-      const subjectInfo = meta.subject ? parseLabSubject(meta.subject) : null;
-      const forwardedInfo = text ? parseForwardingHeaders(text) : null;
-      const forwardedSubjectInfo = forwardedInfo?.subject ? parseLabSubject(forwardedInfo.subject) : null;
-      const pdfMeta = pdfText ? parsePdfMetadata(pdfText) : null;
+        const extractedData = resolvedName
+          ? JSON.stringify({
+              isLabReport: true,
+              patientName: resolvedName,
+              gender: resolvedGender,
+              birthYear: resolvedBirthYear,
+              metadataSource: "subject",
+            })
+          : null;
 
-      const bodyText = [pdfText, text].filter(Boolean).join("\n\n---\n\n") || "";
-      const isLabReport = !!pdfText || !!subjectInfo || !!forwardedSubjectInfo || !!pdfMeta?.patientName;
-
-      const resolvedName = subjectInfo?.patientName ?? forwardedSubjectInfo?.patientName ?? pdfMeta?.patientName ?? null;
-      const resolvedGender = subjectInfo?.gender ?? forwardedSubjectInfo?.gender ?? pdfMeta?.gender ?? null;
-      const resolvedBirthYear = subjectInfo?.birthYear
-        ?? forwardedSubjectInfo?.birthYear
-        ?? (pdfMeta?.birthDate ? pdfMeta.birthDate.getFullYear() : null);
-      const resolvedGovernmentId = pdfMeta?.governmentId ?? null;
-
-      const emailDate = subjectInfo?.date
-        ?? forwardedInfo?.date
-        ?? forwardedSubjectInfo?.date
-        ?? pdfMeta?.date
-        ?? meta.date
-        ?? null;
-
-      const metadataSource = subjectInfo ? "subject"
-        : forwardedSubjectInfo ? "forwarded_subject"
-        : pdfMeta?.patientName ? "pdf"
-        : forwardedInfo ? "forwarded_headers"
-        : null;
-
-      const extractedData = resolvedName
-        ? JSON.stringify({
-            isLabReport: true,
-            patientName: resolvedName,
-            gender: resolvedGender,
-            birthYear: resolvedBirthYear,
-            governmentId: resolvedGovernmentId,
-            metadataSource,
-          })
-        : null;
-
-      // Fetch raw .eml
-      let emlBuffer: Buffer | null = null;
-      try {
-        emlBuffer = await fetchRawMessage(gmail, message.id!);
-      } catch (emlErr) {
-        console.error("EML fetch error for message", message.id, emlErr);
-      }
-
-      return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer };
-    };
-
-    // Process all messages in parallel (concurrency=5)
-    const processed = await Promise.allSettled(
-      fullMessages.map((msg) => processLimit(() => processMessage(msg)))
-    );
-
-    // Batch DB writes
-    for (const result of processed) {
-      if (result.status !== "fulfilled") {
-        console.error("Message processing failed:", result.reason);
-        continue;
-      }
-      const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer } = result.value;
-
-      if (reExtractIdSet.has(message.id!)) {
-        const existingEmail = existingMap.get(message.id!)!;
-        await prisma.email.update({
-          where: { id: existingEmail.id },
-          data: {
-            body: bodyText,
-            htmlBody: html,
-            isLabReport,
-            extractedData,
-            date: emailDate ?? undefined,
-            patientId: patientId ?? undefined,
-            ...(pdfBuffer ? { pdfData: new Uint8Array(pdfBuffer), pdfPath: pdfFilename } : {}),
-            ...(emlBuffer ? { emlData: new Uint8Array(emlBuffer), emlPath: `${message.id}.eml` } : {}),
-          },
-        });
-        const updated = await prisma.email.findUnique({ where: { id: existingEmail.id } });
-        if (updated) emails.push(updated);
-      } else {
-        const email = await prisma.email.create({
+        await prisma.email.create({
           data: {
             ...meta,
             date: emailDate,
-            body: bodyText,
-            htmlBody: html,
+            body: null,
+            htmlBody: null,
             isLabReport,
             extractedData,
-            pdfPath: pdfFilename,
-            pdfData: pdfBuffer ? new Uint8Array(pdfBuffer) : null,
-            emlPath: emlBuffer ? `${message.id}.eml` : null,
-            emlData: emlBuffer ? new Uint8Array(emlBuffer) : null,
+            pdfPath: null,
+            pdfData: null,
+            emlPath: null,
+            emlData: null,
             userId,
             patientId: patientId ?? null,
           },
         });
-        emails.push(email);
+        newlySynced++;
       }
     }
 
-    // Update patient name with the most complete name found in email metadata
-    if (patientId) {
-      const bestName = processed
-        .filter((r) => r.status === "fulfilled" && r.value.extractedData)
-        .map((r) => {
-          try {
-            const data = JSON.parse((r as PromiseFulfilledResult<typeof processed[0] extends PromiseSettledResult<infer T> ? T : never>).value.extractedData!);
-            return data.patientName as string | undefined;
-          } catch { return undefined; }
-        })
-        .filter((n): n is string => !!n)
-        .sort((a, b) => b.length - a.length)[0]; // longest = most complete name
-
-      if (bestName && bestName.trim().split(/\s+/).length >= 2) {
-        const currentPatient = await prisma.patient.findUnique({ where: { id: patientId }, select: { name: true } });
-        if (currentPatient && bestName.length > currentPatient.name.length) {
-          await prisma.patient.update({
-            where: { id: patientId },
-            data: { name: bestName },
-          });
-        }
-      }
-    }
-
-    // Return existing emails that didn't need re-extraction
-    const existingIds = new Set(existing.map((e) => e.gmailMessageId));
-    const unchangedExisting = existing.filter(
-      (e) => !reExtractIdSet.has(e.gmailMessageId) && existingIds.has(e.gmailMessageId)
-    );
-    const unchangedEmails = unchangedExisting.length > 0
-      ? await prisma.email.findMany({
-          where: { id: { in: unchangedExisting.map((e) => e.id) } },
-        })
-      : [];
-
-    // Update patient link for existing emails if needed
-    if (patientId && unchangedEmails.length > 0) {
+    // Link existing emails to patient if needed
+    if (patientId && existing.length > 0) {
       await prisma.email.updateMany({
         where: {
-          id: { in: unchangedEmails.map((e) => e.id) },
+          id: { in: existing.map((e) => e.id) },
           patientId: null,
         },
         data: { patientId },
       });
     }
 
-    // Update patient birthYear/gender from extracted email metadata if currently null
+    // Update patient name/birthYear/gender from subject metadata
     if (patientId) {
+      const allEmails = await prisma.email.findMany({
+        where: { gmailMessageId: { in: messageIds } },
+        select: { extractedData: true },
+      });
+
+      // Find best name (longest)
+      let bestName: string | undefined;
+      let birthYear: number | undefined;
+      let gender: string | undefined;
+
+      for (const e of allEmails) {
+        if (!e.extractedData) continue;
+        try {
+          const data = typeof e.extractedData === "string"
+            ? JSON.parse(e.extractedData)
+            : e.extractedData;
+          if (data.patientName && (!bestName || data.patientName.length > bestName.length)) {
+            bestName = data.patientName;
+          }
+          if (data.birthYear && !birthYear) birthYear = data.birthYear;
+          if (data.gender && !gender) gender = data.gender;
+        } catch { /* ignore */ }
+      }
+
       const currentPatient = await prisma.patient.findUnique({
         where: { id: patientId },
-        select: { birthYear: true, gender: true },
+        select: { name: true, birthYear: true, gender: true },
       });
-      if (currentPatient && (!currentPatient.birthYear || !currentPatient.gender)) {
-        const allSyncedEmails = [...emails, ...unchangedEmails];
-        for (const e of allSyncedEmails) {
-          if (e.extractedData) {
-            try {
-              const parsed = typeof e.extractedData === "string"
-                ? JSON.parse(e.extractedData)
-                : e.extractedData;
-              const updates: { birthYear?: number; gender?: string } = {};
-              if (!currentPatient.birthYear && parsed.birthYear) {
-                updates.birthYear = parsed.birthYear;
-              }
-              if (!currentPatient.gender && parsed.gender) {
-                updates.gender = parsed.gender;
-              }
-              if (Object.keys(updates).length > 0) {
-                await prisma.patient.update({
-                  where: { id: patientId },
-                  data: updates,
-                });
-                break; // Only need the first valid data
-              }
-            } catch { /* ignore parse errors */ }
-          }
+
+      if (currentPatient) {
+        const updates: { name?: string; birthYear?: number; gender?: string } = {};
+        if (bestName && bestName.trim().split(/\s+/).length >= 2 && bestName.length > currentPatient.name.length) {
+          updates.name = bestName;
+        }
+        if (birthYear && !currentPatient.birthYear) updates.birthYear = birthYear;
+        if (gender && !currentPatient.gender) updates.gender = gender;
+
+        if (Object.keys(updates).length > 0) {
+          await prisma.patient.update({
+            where: { id: patientId },
+            data: updates,
+          });
         }
       }
     }
@@ -332,13 +200,18 @@ export async function POST(req: NextRequest) {
       where: { id: syncLog.id },
       data: {
         status: "completed",
-        emailsSynced: emails.length,
+        emailsSynced: newlySynced,
       },
     });
 
-    const allEmails = [...emails, ...unchangedEmails];
+    // Return all matched emails (existing + newly synced)
+    const allEmails = await prisma.email.findMany({
+      where: { gmailMessageId: { in: messageIds } },
+      orderBy: { date: "desc" },
+    });
+
     return NextResponse.json({
-      synced: emails.length,
+      synced: newlySynced,
       total: allEmails.length,
       emails: allEmails,
     });

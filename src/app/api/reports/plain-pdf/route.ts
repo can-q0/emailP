@@ -3,7 +3,6 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, reportIdSchema, parseSearchParams } from "@/lib/validations";
 import { z } from "zod";
-import { readPdf } from "@/lib/pdf-storage";
 import { mergePdfs } from "@/lib/jobs/merge-pdfs";
 
 const plainPdfSchema = z.object({

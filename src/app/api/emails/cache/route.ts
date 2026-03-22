@@ -6,22 +6,10 @@ import { getOrCreateSettings } from "@/lib/settings";
 import {
   getGmailClient,
   searchGmailMessages,
-  batchFetchMessages,
+  batchFetchMetadata,
   extractMessageMeta,
-  fetchAttachment,
-  fetchRawMessage,
 } from "@/lib/gmail";
-import {
-  extractBody,
-  findPdfParts,
-  parseLabSubject,
-  parseForwardingHeaders,
-  parsePdfMetadata,
-  decodeBase64UrlToBuffer,
-} from "@/lib/email-parser";
-import { extractPdfText } from "@/lib/pdf";
-// PDF/EML data stored directly in email records (pdfData/emlData columns)
-import { pLimit } from "@/lib/concurrency";
+import { parseLabSubject } from "@/lib/email-parser";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -45,14 +33,13 @@ export async function POST(req: NextRequest) {
     await prisma.report.deleteMany({ where: { id: { in: stuckIds } } });
   }
 
-  // ── Re-link orphaned emails (patientId=null) by parsing subjects ──
+  // Re-link orphaned emails (patientId=null) by parsing subjects
   const orphanedEmails = await prisma.email.findMany({
     where: { userId, patientId: null, isLabReport: true },
     select: { id: true, subject: true },
   });
 
   if (orphanedEmails.length > 0) {
-    // Extract unique patient names from email subjects
     const nameToEmailIds = new Map<string, string[]>();
     for (const email of orphanedEmails) {
       const parsed = email.subject ? parseLabSubject(email.subject) : null;
@@ -63,7 +50,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Create patients and link emails
     for (const [name, emailIds] of nameToEmailIds) {
       const govId = `pending_${name.toLocaleLowerCase("tr-TR").replace(/\s+/g, "_")}`;
       const patient = await prisma.patient.upsert({
@@ -87,11 +73,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No patients found", cached: 0, synced: 0 }, { status: 404 });
   }
 
-  // ── Sync new emails from Gmail for each patient before caching ──
+  // Lightweight sync: fetch only metadata (subjects/headers) for each patient
   let totalSynced = 0;
   try {
     const gmail = await getGmailClient(userId);
-    const processLimit = pLimit(5);
 
     for (const patient of patients) {
       try {
@@ -101,141 +86,48 @@ export async function POST(req: NextRequest) {
         const messageIds = messageRefs.map((m) => m.id!);
         const existing = await prisma.email.findMany({
           where: { gmailMessageId: { in: messageIds } },
-          select: { id: true, gmailMessageId: true, body: true, pdfPath: true },
+          select: { id: true, gmailMessageId: true },
         });
-        const existingMap = new Map(existing.map((e) => [e.gmailMessageId, e]));
-        const newMessageIds = messageIds.filter((id) => !existingMap.has(id));
+        const existingSet = new Set(existing.map((e) => e.gmailMessageId));
+        const newMessageIds = messageIds.filter((id) => !existingSet.has(id));
 
-        // Also re-extract emails missing PDF or with short body
-        const needsReExtraction = existing.filter(
-          (e) => !e.body || e.body.trim().length < 500 || !e.pdfPath
-        );
-        const reExtractIds = needsReExtraction.map((e) => e.gmailMessageId);
-        const reExtractIdSet = new Set(reExtractIds);
+        if (newMessageIds.length === 0) continue;
 
-        const idsToFetch = [...newMessageIds, ...reExtractIds];
-        if (idsToFetch.length === 0) continue;
+        // Fetch ONLY metadata — no body, no PDF, no EML
+        const metadataMessages = await batchFetchMetadata(gmail, newMessageIds);
 
-        const fullMessages = await batchFetchMessages(gmail, idsToFetch);
-
-        const processMessage = async (message: (typeof fullMessages)[number]) => {
+        for (const message of metadataMessages) {
           const meta = extractMessageMeta(message);
-          const { text, html } = extractBody(message);
-
-          let pdfText = "";
-          let pdfBuffer: Buffer | null = null;
-          let pdfFilename: string | null = null;
-          const pdfParts = findPdfParts(message);
-          for (const part of pdfParts) {
-            try {
-              let raw: string;
-              if (part.data) {
-                raw = part.data;
-              } else if (part.attachmentId) {
-                raw = await fetchAttachment(gmail, message.id!, part.attachmentId);
-              } else {
-                continue;
-              }
-              const buffer = decodeBase64UrlToBuffer(raw);
-              pdfText += await extractPdfText(buffer) + "\n";
-              if (!pdfBuffer) {
-                pdfBuffer = buffer;
-                pdfFilename = part.filename || `${message.id}.pdf`;
-              }
-            } catch (err) {
-              console.error("[cache-sync] PDF parse error:", message.id, err);
-            }
-          }
-
           const subjectInfo = meta.subject ? parseLabSubject(meta.subject) : null;
-          const forwardedInfo = text ? parseForwardingHeaders(text) : null;
-          const forwardedSubjectInfo = forwardedInfo?.subject ? parseLabSubject(forwardedInfo.subject) : null;
-          const pdfMeta = pdfText ? parsePdfMetadata(pdfText) : null;
+          const isLabReport = !!subjectInfo;
 
-          const bodyText = [pdfText, text].filter(Boolean).join("\n\n---\n\n") || "";
-          const isLabReport = !!pdfText || !!subjectInfo || !!forwardedSubjectInfo || !!pdfMeta?.patientName;
-
-          const resolvedName = subjectInfo?.patientName ?? forwardedSubjectInfo?.patientName ?? pdfMeta?.patientName ?? null;
-          const resolvedGender = subjectInfo?.gender ?? forwardedSubjectInfo?.gender ?? pdfMeta?.gender ?? null;
-          const resolvedBirthYear = subjectInfo?.birthYear
-            ?? forwardedSubjectInfo?.birthYear
-            ?? (pdfMeta?.birthDate ? pdfMeta.birthDate.getFullYear() : null);
-          const resolvedGovernmentId = pdfMeta?.governmentId ?? null;
-
-          const emailDate = subjectInfo?.date
-            ?? forwardedInfo?.date
-            ?? forwardedSubjectInfo?.date
-            ?? pdfMeta?.date
-            ?? meta.date
-            ?? null;
-
-          const metadataSource = subjectInfo ? "subject"
-            : forwardedSubjectInfo ? "forwarded_subject"
-            : pdfMeta?.patientName ? "pdf"
-            : forwardedInfo ? "forwarded_headers"
-            : null;
-
-          const extractedData = resolvedName
+          const extractedData = subjectInfo?.patientName
             ? JSON.stringify({
                 isLabReport: true,
-                patientName: resolvedName,
-                gender: resolvedGender,
-                birthYear: resolvedBirthYear,
-                governmentId: resolvedGovernmentId,
-                metadataSource,
+                patientName: subjectInfo.patientName,
+                gender: subjectInfo.gender,
+                birthYear: subjectInfo.birthYear,
+                metadataSource: "subject",
               })
             : null;
 
-          let emlBuffer: Buffer | null = null;
-          try {
-            emlBuffer = await fetchRawMessage(gmail, message.id!);
-          } catch { /* ignore */ }
-
-          return { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer };
-        };
-
-        const processed = await Promise.allSettled(
-          fullMessages.map((msg) => processLimit(() => processMessage(msg)))
-        );
-
-        for (const result of processed) {
-          if (result.status !== "fulfilled") continue;
-          const { message, meta, html, bodyText, isLabReport, extractedData, emailDate, pdfBuffer, pdfFilename, emlBuffer } = result.value;
-
-          if (reExtractIdSet.has(message.id!)) {
-            const existingEmail = existingMap.get(message.id!)!;
-            await prisma.email.update({
-              where: { id: existingEmail.id },
-              data: {
-                body: bodyText,
-                htmlBody: html,
-                isLabReport,
-                extractedData,
-                date: emailDate ?? undefined,
-                patientId: patient.id,
-                ...(pdfBuffer ? { pdfData: new Uint8Array(pdfBuffer), pdfPath: pdfFilename } : {}),
-                ...(emlBuffer ? { emlData: new Uint8Array(emlBuffer), emlPath: `${message.id}.eml` } : {}),
-              },
-            });
-          } else {
-            await prisma.email.create({
-              data: {
-                ...meta,
-                date: emailDate,
-                body: bodyText,
-                htmlBody: html,
-                isLabReport,
-                extractedData,
-                pdfPath: pdfFilename,
-                pdfData: pdfBuffer ? new Uint8Array(pdfBuffer) : null,
-                emlPath: emlBuffer ? `${message.id}.eml` : null,
-                emlData: emlBuffer ? new Uint8Array(emlBuffer) : null,
-                userId,
-                patientId: patient.id,
-              },
-            });
-            totalSynced++;
-          }
+          await prisma.email.create({
+            data: {
+              ...meta,
+              date: subjectInfo?.date ?? meta.date ?? null,
+              body: null,
+              htmlBody: null,
+              isLabReport,
+              extractedData,
+              pdfPath: null,
+              pdfData: null,
+              emlPath: null,
+              emlData: null,
+              userId,
+              patientId: patient.id,
+            },
+          });
+          totalSynced++;
         }
       } catch (err) {
         console.error(`[cache-sync] Sync failed for patient ${patient.name}:`, err);
@@ -259,8 +151,7 @@ export async function POST(req: NextRequest) {
 
     const emailIds = emails.map((e) => e.id);
 
-    // Check which emails already have metrics — either from completed reports
-    // OR from currently-processing cache reports (to prevent duplicates)
+    // Check which emails already have metrics
     const alreadyHandled = await prisma.reportEmail.findMany({
       where: {
         emailId: { in: emailIds },

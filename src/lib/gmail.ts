@@ -72,15 +72,23 @@ export async function getGmailClient(userId: string): Promise<gmail_v1.Gmail> {
 export async function searchGmailMessages(
   gmail: gmail_v1.Gmail,
   query: string,
-  maxResults = 50
+  maxResults = 10000
 ): Promise<gmail_v1.Schema$Message[]> {
-  const res = await gmail.users.messages.list({
-    userId: "me",
-    q: query,
-    maxResults,
-  });
+  const all: gmail_v1.Schema$Message[] = [];
+  let pageToken: string | undefined;
 
-  return res.data.messages || [];
+  do {
+    const res = await gmail.users.messages.list({
+      userId: "me",
+      q: query,
+      maxResults: Math.min(maxResults - all.length, 500),
+      pageToken,
+    });
+    all.push(...(res.data.messages || []));
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken && all.length < maxResults);
+
+  return all;
 }
 
 export async function fetchGmailMessage(
@@ -94,6 +102,41 @@ export async function fetchGmailMessage(
   });
 
   return res.data;
+}
+
+export async function fetchGmailMessageMetadata(
+  gmail: gmail_v1.Gmail,
+  messageId: string
+): Promise<gmail_v1.Schema$Message> {
+  const res = await gmail.users.messages.get({
+    userId: "me",
+    id: messageId,
+    format: "metadata",
+    metadataHeaders: ["Subject", "From", "To", "Date"],
+  });
+  return res.data;
+}
+
+export async function batchFetchMetadata(
+  gmail: gmail_v1.Gmail,
+  messageIds: string[],
+  concurrency = 20
+): Promise<gmail_v1.Schema$Message[]> {
+  const results: gmail_v1.Schema$Message[] = [];
+
+  for (let i = 0; i < messageIds.length; i += concurrency) {
+    const batch = messageIds.slice(i, i + concurrency);
+    const promises = batch.map((id) => fetchGmailMessageMetadata(gmail, id));
+    const batchResults = await Promise.allSettled(promises);
+
+    for (const result of batchResults) {
+      if (result.status === "fulfilled") {
+        results.push(result.value);
+      }
+    }
+  }
+
+  return results;
 }
 
 export async function batchFetchMessages(

@@ -20,7 +20,10 @@ export async function mergePdfs(payload: MergePdfsPayload) {
     const mergedPdf = await PDFDocument.create();
     let pdfCount = 0;
 
-    for (const email of emails) {
+    console.log(`[merge-pdfs] Starting merge for report ${reportId}: ${emails.length} emails`);
+
+    for (let i = 0; i < emails.length; i++) {
+      const email = emails[i];
       try {
         // Try cached PDF from DB first
         const cachedData = pdfDataMap.get(email.id);
@@ -32,9 +35,10 @@ export async function mergePdfs(payload: MergePdfsPayload) {
               const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
               for (const page of pages) mergedPdf.addPage(page);
               pdfCount++;
-              continue; // Skip Gmail fetch
+              console.log(`[merge-pdfs] [${i + 1}/${emails.length}] ${email.subject} — from DB cache`);
+              continue;
             } catch (err) {
-              console.error(`Cached PDF load failed for email ${email.id}, falling back to Gmail:`, err);
+              console.error(`[merge-pdfs] Cached PDF load failed for ${email.id}, falling back to Gmail:`, err);
             }
           }
         }
@@ -42,7 +46,7 @@ export async function mergePdfs(payload: MergePdfsPayload) {
         // Skip Gmail fetch if auth already failed
         if (gmailAuthFailed) continue;
 
-        // Fallback: fetch from Gmail
+        // Fetch from Gmail
         if (!gmail) {
           try {
             gmail = await getGmailClient(userId);
@@ -58,7 +62,6 @@ export async function mergePdfs(payload: MergePdfsPayload) {
 
         const message = await fetchGmailMessage(gmail, email.gmailMessageId);
         const pdfParts = findPdfParts(message);
-        console.log(`[merge-pdfs] Email ${email.id} (${email.subject}): ${pdfParts.length} PDF part(s) found via Gmail`);
 
         for (const part of pdfParts) {
           let raw: string;
@@ -85,20 +88,40 @@ export async function mergePdfs(payload: MergePdfsPayload) {
               mergedPdf.addPage(page);
             }
             pdfCount++;
+
+            // Cache the PDF back to DB for future use
+            await prisma.email.update({
+              where: { id: email.id },
+              data: {
+                pdfData: new Uint8Array(buffer),
+                pdfPath: part.filename || `${email.gmailMessageId}.pdf`,
+              },
+            });
+
+            console.log(`[merge-pdfs] [${i + 1}/${emails.length}] ${email.subject} — fetched from Gmail, cached to DB`);
           } catch (err) {
-            console.error(`Failed to load PDF from email ${email.id}:`, err);
+            console.error(`[merge-pdfs] Failed to load PDF from email ${email.id}:`, err);
           }
         }
+
+        if (pdfParts.length === 0) {
+          console.log(`[merge-pdfs] [${i + 1}/${emails.length}] ${email.subject} — no PDF attachment`);
+        }
       } catch (err) {
-        console.error(`Failed to fetch message ${email.gmailMessageId}:`, err);
+        console.error(`[merge-pdfs] Failed to fetch message ${email.gmailMessageId}:`, err);
+      }
+
+      // Update progress step
+      if (i % 10 === 0 || i === emails.length - 1) {
+        await prisma.report.update({
+          where: { id: reportId },
+          data: { step: `merging_pdfs:${i + 1}/${emails.length}` },
+        });
       }
     }
 
     if (pdfCount === 0) {
-      // Distinguish between "no PDFs exist" and "can't access Gmail"
-      const errorStep = gmailAuthFailed
-        ? "gmail_token_expired"
-        : null;
+      const errorStep = gmailAuthFailed ? "gmail_token_expired" : null;
       const errorStatus = gmailAuthFailed ? "failed" : "no_results";
 
       console.warn(`[merge-pdfs] Report ${reportId}: No PDFs found. gmailAuthFailed=${gmailAuthFailed}`);
@@ -111,6 +134,8 @@ export async function mergePdfs(payload: MergePdfsPayload) {
 
     const pdfBytes = await mergedPdf.save();
     const pdfBuffer = Buffer.from(pdfBytes);
+
+    console.log(`[merge-pdfs] Report ${reportId}: merged ${pdfCount} PDFs, ${pdfBuffer.length} bytes`);
 
     await prisma.report.update({
       where: { id: reportId },
