@@ -296,7 +296,7 @@ function QueryPageContent() {
     <div className="min-h-screen">
       <Navbar />
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <div className="relative z-0 max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <AnimatePresence mode="wait">
           {step === "query" && (
             <PageTransition key="query">
