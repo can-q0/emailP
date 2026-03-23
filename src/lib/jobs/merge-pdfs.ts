@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { getGmailClient, fetchGmailMessage, fetchAttachment, GmailTokenError } from "@/lib/gmail";
+import {
+  getGmailClient,
+  searchGmailMessages,
+  fetchGmailMessage,
+  fetchAttachment,
+  GmailTokenError,
+} from "@/lib/gmail";
 import { findPdfParts, decodeBase64UrlToBuffer } from "@/lib/email-parser";
 import { PDFDocument } from "pdf-lib";
 import { pLimit } from "@/lib/concurrency";
@@ -7,129 +13,145 @@ import type { MergePdfsPayload } from "@/lib/queue";
 
 interface PdfResult {
   index: number;
-  emailId: string;
-  subject: string | null;
+  gmailMessageId: string;
   buffer: Buffer;
   filename: string;
-  source: "cache" | "gmail";
 }
 
 export async function mergePdfs(payload: MergePdfsPayload) {
-  const { reportId, emails, userId } = payload;
+  const { reportId, userId, gmailQuery } = payload;
 
   try {
-    console.log(`[merge-pdfs] Starting merge for report ${reportId}: ${emails.length} emails`);
-
-    // Look up cached pdfData for these emails
-    const emailRecords = await prisma.email.findMany({
-      where: { id: { in: emails.map((e) => e.id) } },
-      select: { id: true, pdfData: true },
-    });
-    const pdfDataMap = new Map(emailRecords.map((e) => [e.id, e.pdfData]));
-
-    // Separate cached vs needs-fetch
-    const cached: PdfResult[] = [];
-    const needsFetch: typeof emails = [];
-
-    for (let i = 0; i < emails.length; i++) {
-      const email = emails[i];
-      const data = pdfDataMap.get(email.id);
-      if (data) {
-        const buf = Buffer.from(data);
-        if (buf.length > 0) {
-          cached.push({ index: i, emailId: email.id, subject: email.subject, buffer: buf, filename: "", source: "cache" });
-          continue;
-        }
+    let gmail: Awaited<ReturnType<typeof getGmailClient>>;
+    try {
+      gmail = await getGmailClient(userId);
+    } catch (err) {
+      if (err instanceof GmailTokenError || (err instanceof Error && err.name === "GmailTokenError")) {
+        console.error("[merge-pdfs] Gmail token expired");
+        await prisma.report.update({
+          where: { id: reportId },
+          data: { status: "failed", step: "gmail_token_expired" },
+        });
+        return;
       }
-      needsFetch.push(email);
+      throw err;
     }
 
-    console.log(`[merge-pdfs] ${cached.length} from DB cache, ${needsFetch.length} to fetch from Gmail`);
+    // Discover ALL matching messages directly from Gmail
+    let gmailMessageIds: string[];
 
-    // Fetch PDFs from Gmail in parallel (concurrency 10)
-    let gmailAuthFailed = false;
-    const fetched: PdfResult[] = [];
-
-    if (needsFetch.length > 0) {
-      let gmail: Awaited<ReturnType<typeof getGmailClient>>;
-      try {
-        gmail = await getGmailClient(userId);
-      } catch (err) {
-        if (err instanceof GmailTokenError || (err instanceof Error && err.name === "GmailTokenError")) {
-          console.error("[merge-pdfs] Gmail token expired");
-          gmailAuthFailed = true;
-        } else {
-          throw err;
-        }
-      }
-
-      if (!gmailAuthFailed) {
-        const limit = pLimit(10);
-        let done = 0;
-
-        const fetchOne = async (email: (typeof needsFetch)[number]) => {
-          const message = await fetchGmailMessage(gmail!, email.gmailMessageId);
-          const pdfParts = findPdfParts(message);
-
-          for (const part of pdfParts) {
-            let raw: string;
-            if (part.data) {
-              raw = part.data;
-            } else if (part.attachmentId) {
-              raw = await fetchAttachment(gmail!, email.gmailMessageId, part.attachmentId);
-            } else {
-              continue;
-            }
-
-            const buffer = decodeBase64UrlToBuffer(raw);
-            const originalIndex = emails.indexOf(email);
-            fetched.push({
-              index: originalIndex,
-              emailId: email.id,
-              subject: email.subject,
-              buffer,
-              filename: part.filename || `${email.gmailMessageId}.pdf`,
-              source: "gmail",
-            });
-            break; // first PDF per email
-          }
-
-          done++;
-          if (done % 10 === 0 || done === needsFetch.length) {
-            await prisma.report.update({
-              where: { id: reportId },
-              data: { step: `downloading:${done}/${needsFetch.length}` },
-            });
-          }
-        };
-
-        const results = await Promise.allSettled(
-          needsFetch.map((email) => limit(() => fetchOne(email)))
-        );
-
-        for (const r of results) {
-          if (r.status === "rejected") {
-            console.error("[merge-pdfs] fetch failed:", r.reason);
-          }
-        }
-      }
-    }
-
-    // Combine and sort by original email order
-    const allPdfs = [...cached, ...fetched].sort((a, b) => a.index - b.index);
-
-    if (allPdfs.length === 0) {
-      const errorStep = gmailAuthFailed ? "gmail_token_expired" : null;
-      const errorStatus = gmailAuthFailed ? "failed" : "no_results";
-      console.warn(`[merge-pdfs] Report ${reportId}: No PDFs found`);
+    if (gmailQuery) {
+      // Search Gmail directly — find ALL matching messages (no pre-sync needed)
       await prisma.report.update({
         where: { id: reportId },
-        data: { status: errorStatus, step: errorStep },
+        data: { step: "searching" },
+      });
+      const messageRefs = await searchGmailMessages(gmail, gmailQuery);
+      gmailMessageIds = messageRefs.map((m) => m.id!);
+      console.log(`[merge-pdfs] Gmail search "${gmailQuery}" found ${gmailMessageIds.length} messages`);
+    } else {
+      // Fallback: use pre-synced email IDs from payload
+      gmailMessageIds = payload.emails.map((e) => e.gmailMessageId);
+    }
+
+    if (gmailMessageIds.length === 0) {
+      await prisma.report.update({
+        where: { id: reportId },
+        data: { status: "no_results", step: null },
       });
       return;
     }
 
-    // Merge all PDFs sequentially (pdf-lib requirement)
+    // Check DB cache for already-downloaded PDFs (by gmailMessageId)
+    const cachedEmails = await prisma.email.findMany({
+      where: { gmailMessageId: { in: gmailMessageIds }, pdfData: { not: null } },
+      select: { gmailMessageId: true, pdfData: true },
+    });
+    const cachedMap = new Map(cachedEmails.map((e) => [e.gmailMessageId, e.pdfData]));
+
+    // Separate cached vs needs-fetch
+    const cached: PdfResult[] = [];
+    const needsFetchIds: string[] = [];
+
+    for (let i = 0; i < gmailMessageIds.length; i++) {
+      const gmailId = gmailMessageIds[i];
+      const data = cachedMap.get(gmailId);
+      if (data) {
+        const buf = Buffer.from(data);
+        if (buf.length > 0) {
+          cached.push({ index: i, gmailMessageId: gmailId, buffer: buf, filename: "" });
+          continue;
+        }
+      }
+      needsFetchIds.push(gmailId);
+    }
+
+    console.log(`[merge-pdfs] ${cached.length} from DB cache, ${needsFetchIds.length} to fetch from Gmail`);
+
+    // Download PDFs from Gmail in parallel (concurrency 10)
+    const fetched: PdfResult[] = [];
+    if (needsFetchIds.length > 0) {
+      const limit = pLimit(10);
+      let done = 0;
+
+      const fetchOne = async (gmailId: string) => {
+        const message = await fetchGmailMessage(gmail, gmailId);
+        const pdfParts = findPdfParts(message);
+
+        for (const part of pdfParts) {
+          let raw: string;
+          if (part.data) {
+            raw = part.data;
+          } else if (part.attachmentId) {
+            raw = await fetchAttachment(gmail, gmailId, part.attachmentId);
+          } else {
+            continue;
+          }
+
+          const buffer = decodeBase64UrlToBuffer(raw);
+          const originalIndex = gmailMessageIds.indexOf(gmailId);
+          fetched.push({
+            index: originalIndex,
+            gmailMessageId: gmailId,
+            buffer,
+            filename: part.filename || `${gmailId}.pdf`,
+          });
+          break; // first PDF per email
+        }
+
+        done++;
+        if (done % 10 === 0 || done === needsFetchIds.length) {
+          await prisma.report.update({
+            where: { id: reportId },
+            data: { step: `downloading:${done}/${needsFetchIds.length}` },
+          });
+        }
+      };
+
+      const results = await Promise.allSettled(
+        needsFetchIds.map((id) => limit(() => fetchOne(id)))
+      );
+
+      for (const r of results) {
+        if (r.status === "rejected") {
+          console.error("[merge-pdfs] fetch failed:", r.reason);
+        }
+      }
+    }
+
+    // Combine and sort by original Gmail order
+    const allPdfs = [...cached, ...fetched].sort((a, b) => a.index - b.index);
+
+    if (allPdfs.length === 0) {
+      console.warn(`[merge-pdfs] Report ${reportId}: No PDFs found`);
+      await prisma.report.update({
+        where: { id: reportId },
+        data: { status: "no_results", step: null },
+      });
+      return;
+    }
+
+    // Merge all PDFs
     await prisma.report.update({
       where: { id: reportId },
       data: { step: `merging:${allPdfs.length}` },
@@ -145,7 +167,7 @@ export async function mergePdfs(payload: MergePdfsPayload) {
         for (const page of pages) mergedPdf.addPage(page);
         pdfCount++;
       } catch (err) {
-        console.error(`[merge-pdfs] Failed to load PDF for ${pdf.emailId}:`, err);
+        console.error(`[merge-pdfs] Failed to load PDF for ${pdf.gmailMessageId}:`, err);
       }
     }
 
@@ -164,13 +186,12 @@ export async function mergePdfs(payload: MergePdfsPayload) {
       },
     });
 
-    // Cache fetched PDFs to DB in background (don't block response)
-    const toCache = allPdfs.filter((p) => p.source === "gmail");
-    if (toCache.length > 0) {
+    // Cache fetched PDFs to DB in background
+    if (fetched.length > 0) {
       Promise.allSettled(
-        toCache.map((p) =>
-          prisma.email.update({
-            where: { id: p.emailId },
+        fetched.map((p) =>
+          prisma.email.updateMany({
+            where: { gmailMessageId: p.gmailMessageId },
             data: {
               pdfData: new Uint8Array(p.buffer),
               pdfPath: p.filename,

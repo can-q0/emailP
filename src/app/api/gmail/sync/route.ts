@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, gmailSyncSchema);
   if (!parsed.success) return parsed.response;
-  const { query, patientName } = parsed.data;
+  const { query, patientName, maxResults } = parsed.data;
 
   const userId = session.user.id;
 
@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
   try {
     const gmail = await getGmailClient(userId);
 
-    // Paginated search — returns ALL matching message IDs
-    const messageRefs = await searchGmailMessages(gmail, query);
+    // Paginated search — capped by maxResults (default 200 for fast search)
+    const messageRefs = await searchGmailMessages(gmail, query, maxResults ?? 200);
 
     await prisma.emailSyncLog.update({
       where: { id: syncLog.id },

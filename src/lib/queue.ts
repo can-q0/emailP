@@ -28,6 +28,7 @@ export interface MergePdfsPayload {
     date: string | null; // ISO string
   }>;
   userId: string;
+  gmailQuery?: string;
 }
 
 const globalForBoss = globalThis as unknown as {

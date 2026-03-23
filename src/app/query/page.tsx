@@ -220,7 +220,7 @@ function QueryPageContent() {
       const res = await fetch("/api/reports/plain-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patientId, emailIds, title: `Plain PDF - ${name}` }),
+        body: JSON.stringify({ patientId, emailIds, title: `Plain PDF - ${name}`, gmailQuery: name }),
       });
       const data = await res.json();
       if (data.reportId) {

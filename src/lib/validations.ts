@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const gmailSyncSchema = z.object({
   query: z.string().min(1),
   patientName: z.string().optional(),
+  maxResults: z.number().int().min(1).max(10000).optional(),
 });
 
 export const gmailSearchSchema = z.object({

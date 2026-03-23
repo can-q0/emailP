@@ -9,6 +9,7 @@ const plainPdfSchema = z.object({
   patientId: z.string().min(1),
   emailIds: z.array(z.string()).min(1),
   title: z.string().optional(),
+  gmailQuery: z.string().optional(),
 });
 
 /**
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, plainPdfSchema);
   if (!parsed.success) return parsed.response;
-  const { patientId, emailIds, title } = parsed.data;
+  const { patientId, emailIds, title, gmailQuery } = parsed.data;
 
   const userId = session.user.id;
 
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
       date: e.date?.toISOString() ?? null,
     })),
     userId,
+    gmailQuery,
   };
 
   after(async () => {
