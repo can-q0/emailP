@@ -45,10 +45,14 @@ import { SpotlightOverlay } from "@/components/onboarding/spotlight-overlay";
 import { GoLiveModal } from "@/components/onboarding/go-live-modal";
 import { DASHBOARD_TOUR } from "@/components/onboarding/tour-steps";
 
-const REPORT_STEPS = [
-  { label: "Syncing" },
+const REPORT_STEPS_AI = [
   { label: "Extracting" },
   { label: "Generating" },
+];
+
+const REPORT_STEPS_PDF = [
+  { label: "Downloading" },
+  { label: "Merging" },
 ];
 
 const REPORT_TYPES = [
@@ -109,6 +113,7 @@ export default function DashboardPage() {
   const [candidates, setCandidates] = useState<PatientCandidate[]>([]);
   const [progress, setProgress] = useState("");
   const [progressStep, setProgressStep] = useState(0);
+  const [activeReportSteps, setActiveReportSteps] = useState(REPORT_STEPS_AI);
   const [failedReport, setFailedReport] = useState<{
     reportId: string;
     patientId: string;
@@ -184,73 +189,37 @@ export default function DashboardPage() {
   // ── Generate flow ──────────────────────────────────────
 
   const handleGenerate = useCallback(async (patient: PatientSearchResult, rType: string, fmt: string) => {
+    const emailIds = results.emails.map((e) => e.id);
 
-    setStep("generating");
-    setProgress("Syncing emails...");
-    setProgressStep(0);
-
-    try {
-      const syncRes = await fetch("/api/gmail/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: patient.name, patientName: patient.name }),
-      });
-
-      const syncData = await syncRes.json();
-      if (syncData.error === "gmail_token_expired") {
-        setTokenExpired(true);
-        setStep("search");
-        toast.error("Gmail token expired. Please reconnect.");
-        return;
-      }
-      if (!syncRes.ok) throw new Error("Failed to sync emails");
-
-      if (syncData.total === 0) {
-        setStep("no_results");
-        return;
-      }
-
-      const emailIds = syncData.emails.map((e: { id: string }) => e.id);
-
-      setProgress("Checking patient records...");
-      const disambRes = await fetch("/api/patients/disambiguate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patientName: patient.name, emailIds }),
-      });
-      const disambData = await disambRes.json();
-
-      if (disambData.needsDisambiguation) {
-        setCandidates(disambData.candidates);
-        setPendingEmailIds(emailIds);
-        setPendingPatientName(patient.name);
-        setStep("disambiguate");
-        return;
-      }
-
-      const patId = disambData.candidates[0]?.id;
-      if (!patId) {
-        toast.error("Could not find patient. Please try again.");
-        setStep("search");
-        return;
-      }
-
-      if (rType === "plain PDF") {
-        await generatePlainPdf(patId, emailIds, patient.name);
-      } else if (rType === "comparison") {
-        setPendingPatientId(patId);
-        setPendingEmailIds(emailIds);
-        setPendingPatientName(patient.name);
-        setStep("select_dates");
-      } else {
-        await generateReport(patId, emailIds, patient.name, rType, fmt);
-      }
-    } catch (error) {
-      console.error("Generate error:", error);
-      toast.error("An error occurred. Please try again.");
-      setStep("search");
+    if (emailIds.length === 0) {
+      toast.error("No emails found. Try a different search.");
+      return;
     }
-  }, [router]);
+
+    // 1 patient → go directly, >1 → disambiguate
+    if (results.patients.length > 1) {
+      setCandidates(results.patients.map((p) => ({
+        id: p.id, name: p.name, governmentId: p.governmentId, emailCount: p.emailCount,
+      })));
+      setPendingEmailIds(emailIds);
+      setPendingPatientName(patient.name);
+      setStep("disambiguate");
+      return;
+    }
+
+    const patId = patient.id;
+
+    if (rType === "plain PDF") {
+      await generatePlainPdf(patId, emailIds, patient.name);
+    } else if (rType === "comparison") {
+      setPendingPatientId(patId);
+      setPendingEmailIds(emailIds);
+      setPendingPatientName(patient.name);
+      setStep("select_dates");
+    } else {
+      await generateReport(patId, emailIds, patient.name, rType, fmt);
+    }
+  }, [results, router]);
 
   const handlePatientSelect = useCallback(async (candidate: PatientCandidate) => {
     let patientId = candidate.id;
@@ -264,13 +233,7 @@ export default function DashboardPage() {
       patientId = data.candidates?.[0]?.id || candidate.id;
     }
 
-    const syncRes = await fetch("/api/gmail/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: candidate.name, patientName: candidate.name }),
-    });
-    const syncData = await syncRes.json();
-    const emailIds = syncData.emails?.map((e: { id: string }) => e.id) || [];
+    const emailIds = results.emails.map((e) => e.id);
 
     if (reportType === "plain PDF") {
       await generatePlainPdf(patientId, emailIds, candidate.name);
@@ -282,12 +245,13 @@ export default function DashboardPage() {
     } else {
       await generateReport(patientId, emailIds, candidate.name, reportType, format);
     }
-  }, [reportType, format, router]);
+  }, [results, reportType, format, router]);
 
   const generatePlainPdf = async (patientId: string, emailIds: string[], name: string) => {
     setStep("generating");
-    setProgress("Fetching & merging PDF attachments...");
-    setProgressStep(1);
+    setActiveReportSteps(REPORT_STEPS_PDF);
+    setProgress("Downloading PDF attachments...");
+    setProgressStep(0);
     try {
       const res = await fetch("/api/reports/plain-pdf", {
         method: "POST",
@@ -299,9 +263,20 @@ export default function DashboardPage() {
         const pollInterval = setInterval(async () => {
           const statusRes = await fetch(`/api/reports?id=${data.reportId}`);
           const report = await statusRes.json();
+
+          // Update progress from step field (e.g. "downloading:5/50", "merging:50")
+          if (report.step) {
+            if (report.step.startsWith("downloading:")) {
+              setProgress(`Downloading PDFs... ${report.step.split(":")[1]}`);
+              setProgressStep(0);
+            } else if (report.step.startsWith("merging:")) {
+              setProgress(`Merging ${report.step.split(":")[1]} PDFs...`);
+              setProgressStep(1);
+            }
+          }
+
           if (report.status === "completed") {
             clearInterval(pollInterval);
-            toast.success("PDF merged successfully!");
             router.push(`/report/${data.reportId}`);
           } else if (report.status === "failed" || report.status === "no_results") {
             clearInterval(pollInterval);
@@ -324,8 +299,9 @@ export default function DashboardPage() {
     comparisonDateA?: string, comparisonDateB?: string
   ) => {
     setStep("generating");
+    setActiveReportSteps(REPORT_STEPS_AI);
     setProgress("Extracting blood metrics...");
-    setProgressStep(1);
+    setProgressStep(0);
 
     const res = await fetch("/api/ai/generate-report", {
       method: "POST",
@@ -340,8 +316,8 @@ export default function DashboardPage() {
         const report = await statusRes.json();
         if (report.step) {
           const steps: Record<string, { text: string; idx: number }> = {
-            extracting_metrics: { text: "Extracting blood metrics...", idx: 1 },
-            generating_summary: { text: "Generating summary & analysis...", idx: 2 },
+            extracting_metrics: { text: "Extracting blood metrics...", idx: 0 },
+            generating_summary: { text: "Generating summary & analysis...", idx: 1 },
           };
           const s = steps[report.step];
           if (s) { setProgress(s.text); setProgressStep(s.idx); }
@@ -352,7 +328,7 @@ export default function DashboardPage() {
             setTokenExpired(true);
             toast.error("Gmail token expired. Please reconnect your Google account.");
             setStep("search");
-          } else if (report.status === "completed") { toast.success("Report generated!"); router.push(`/report/${data.reportId}`); }
+          } else if (report.status === "completed") { router.push(`/report/${data.reportId}`); }
           else if (report.status === "no_results") { setStep("no_results"); }
           else {
             setFailedReport({ reportId: data.reportId, patientId, emailIds, patientName: name, reportType: rType, format: fmt, errorMessage: report.step || "An unexpected error occurred." });
@@ -789,7 +765,7 @@ export default function DashboardPage() {
                 <motion.div className="absolute inset-4 rounded-full bg-primary" animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }} />
               </div>
               <motion.p key={progress} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="text-lg font-medium mb-8">{progress}</motion.p>
-              <ProgressSteps steps={REPORT_STEPS} currentStep={progressStep} />
+              <ProgressSteps steps={activeReportSteps} currentStep={progressStep} />
             </motion.div>
           )}
 
